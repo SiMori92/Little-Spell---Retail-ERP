@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+# .env.example carries no secrets and documents the required variables.
+!.env.example
+staticfiles/
+db.sqlite3
+.DS_Store

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # The migration in core/0002 creates database ROLES, so the test database
+        # user must hold CREATEROLE. The postgres service's superuser does.
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tattoo_ledger
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tattoo_ledger
+      DJANGO_SECRET_KEY: ci-only-key-not-used-anywhere-else
+      DJANGO_DEBUG: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Django system checks
+        run: uv run python manage.py check
+
+      - name: Deployment checks
+        run: uv run python manage.py check --deploy
+        env:
+          DJANGO_DEBUG: "0"
+
+      - name: Fail if a model change has no migration
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Migrate
+        run: uv run python manage.py migrate
+
+      - name: Apply table grants
+        run: uv run python manage.py apply_table_grants
+
+      - name: Tests
+        run: uv run python manage.py test --verbosity 2
+
+      - name: Guard — .env must never be committed
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env is tracked in git."; exit 1
+          fi
+          echo ".env is not tracked."
+
+      - name: Guard — no customer data files in the repo
+        run: |
+          if git ls-files | grep -Ei '(^|/)(state/|customers\.csv|orders\.csv)'; then
+            echo "::error::A state/ or customer data file is tracked in this repo."; exit 1
+          fi
+          echo "No customer data files tracked."
