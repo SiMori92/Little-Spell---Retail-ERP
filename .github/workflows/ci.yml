@@ -58,6 +58,12 @@ jobs:
       - name: Apply table grants
         run: uv run python manage.py apply_table_grants
 
+      - name: Collect static files
+        # The admin pages the tests request are rendered with WhiteNoise's
+        # *manifest* storage, which raises unless collectstatic has run. This step
+        # also proves the manifest pipeline that the deploy image depends on.
+        run: uv run python manage.py collectstatic --noinput
+
       - name: Tests
         run: uv run python manage.py test --verbosity 2
 
