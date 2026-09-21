@@ -1,0 +1,18 @@
+[project]
+name = "tattoo-ledger"
+version = "0.1.0"
+description = "Operational ledger and financial reporting for a Taiwan temporary-tattoo-sticker business."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dj-database-url>=3.1.2",
+    "django>=6.1.1",
+    "djangorestframework>=3.18.1",
+    "gunicorn>=26.2.0",
+    "psycopg[binary]>=3.3.6",
+    "python-dotenv>=1.2.3",
+    "whitenoise>=6.12.0",
+]
+
+[tool.uv]
+package = false
