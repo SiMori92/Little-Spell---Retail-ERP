@@ -38,9 +38,26 @@ Slice A.** Create `web` and `Postgres` only.
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — a **reference**, never a pasted string |
 | `DJANGO_SECRET_KEY` | a **NEW** key. Not the one in local `.env`. |
 | `DJANGO_DEBUG` | `0` |
+| `DJANGO_DB_SSL_REQUIRE` | `1`. Set to `0` **only** if the deploy fails with *"server does not support SSL"* — see below. |
 
 `RAILWAY_PUBLIC_DOMAIN` is injected by Railway; `settings.py` appends it to
 `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically.
+
+### If the pre-deploy migrate fails with "server does not support SSL"
+
+`DATABASE_URL` from `${{Postgres.DATABASE_URL}}` resolves to Railway's **private**
+hostname `postgres.railway.internal`, which does not always terminate TLS. With
+`DJANGO_DEBUG=0` the app asks for `sslmode=require`, and the pre-deploy `migrate`
+then fails.
+
+That failure is the pre-deploy slot doing its job — the deploy stops instead of
+crash-looping a half-migrated app. The fix is one variable, not a code change:
+
+    DJANGO_DB_SSL_REQUIRE=0
+
+Set it **only** while `DATABASE_URL` points at `*.railway.internal`, which never
+leaves Railway's private network. If that URL is ever repointed at a public host,
+set it back to `1`.
 
 Generate the new key:
 

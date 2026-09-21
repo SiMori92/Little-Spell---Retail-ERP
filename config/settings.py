@@ -79,9 +79,22 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+# SSL to the database: required in production, off locally.
+#
+# Overridable because Railway's PRIVATE network hostname
+# (`postgres.railway.internal`) does not always terminate TLS, and
+# `sslmode=require` against it fails with "server does not support SSL". That would
+# fail the pre-deploy migrate — correctly, but for a reason that has nothing to do
+# with the migration. Setting DJANGO_DB_SSL_REQUIRE=0 is then the right fix, and it
+# is a variable change rather than a code change and redeploy.
+#
+# Turn it off ONLY for Railway's private hostname, which never leaves their network.
+# If DATABASE_URL ever points at a public host, this must stay 1.
+DB_SSL_REQUIRE = os.environ.get("DJANGO_DB_SSL_REQUIRE", "0" if DEBUG else "1") == "1"
+
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.environ["DATABASE_URL"], conn_max_age=600, ssl_require=not DEBUG
+        default=os.environ["DATABASE_URL"], conn_max_age=600, ssl_require=DB_SSL_REQUIRE
     )
 }
 
