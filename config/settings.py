@@ -14,12 +14,39 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+
+def required_env(name, hint):
+    """Fail loudly on a missing variable, and say what to do about it.
+
+    Deliberately NOT defaulted. A generated fallback secret key would boot an app
+    whose sessions and signatures are worthless, and it would boot it silently —
+    the failure would surface later as users being logged out at random rather
+    than here, as a refusal to start.
+
+    The bare KeyError this replaces was correct but unhelpful: sixty lines of
+    traceback whose actionable content was one word.
+    """
+    value = os.environ.get(name)
+    if value:
+        return value
+    raise ImproperlyConfigured(
+        f"\n\n  Required environment variable {name} is not set.\n"
+        f"  {hint}\n"
+        f"  Locally: set it in app/.env (see .env.example).\n"
+        f"  On Railway: web service -> Variables.\n"
+    )
+
+
+SECRET_KEY = required_env(
+    "DJANGO_SECRET_KEY",
+    'Generate one with: uv run python -c "import secrets; print(secrets.token_urlsafe(50))"',
+)
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
@@ -94,7 +121,13 @@ DB_SSL_REQUIRE = os.environ.get("DJANGO_DB_SSL_REQUIRE", "0" if DEBUG else "1") 
 
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.environ["DATABASE_URL"], conn_max_age=600, ssl_require=DB_SSL_REQUIRE
+        default=required_env(
+            "DATABASE_URL",
+            "On Railway this must be the reference ${{Postgres.DATABASE_URL}}, "
+            "never a pasted connection string.",
+        ),
+        conn_max_age=600,
+        ssl_require=DB_SSL_REQUIRE,
     )
 }
 

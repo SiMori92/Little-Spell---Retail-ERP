@@ -82,6 +82,33 @@ crash-loops a half-migrated app instead of failing the deploy (KICKSTART §12).
 `apply_table_grants` follows `migrate` because `ALTER DEFAULT PRIVILEGES` cannot
 filter by table-name prefix — see `core/dbroles.py`.
 
+## Troubleshooting the first deploy
+
+### `ImproperlyConfigured: Required environment variable DJANGO_SECRET_KEY is not set`
+
+The variable is missing on the **web service**. Set the four variables above and
+redeploy. The app refuses to start rather than inventing a key, because a generated
+fallback key boots an application whose sessions and signatures are worthless — and
+boots it silently.
+
+### Gunicorn is crash-looping instead of the deploy failing
+
+**This means the pre-deploy command is not running.** If it were, `migrate` would hit
+the same misconfiguration first and fail the deploy, and gunicorn would never start.
+
+Check **web service -> Settings -> Deploy** and confirm the pre-deploy command is
+actually registered:
+
+    uv run python manage.py migrate && uv run python manage.py apply_table_grants
+
+`railway.json` sets it, but a value entered in the dashboard, or config-as-code not
+being picked up for the service, will override or bypass it. This matters beyond the
+current error: it is the difference between a bad migration failing the deploy and a
+bad migration leaving a half-migrated database serving traffic (BUILD_TASK §4.3).
+
+Symptom to watch for: the deploy logs show gunicorn booting but contain **no
+`Applying ...` migration lines at all**.
+
 ## First deploy
 
 ```bash
