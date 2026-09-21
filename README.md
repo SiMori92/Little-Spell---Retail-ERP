@@ -1,4 +1,8 @@
-# tattoo-ledger
+# Little Spell — Retail ERP
+
+GitHub repository: **`Little-Spell---Retail-ERP`**. The Python project is named `tattoo-ledger`
+(`pyproject.toml`), and the Django project package is `config`. The three names are
+independent; only the repository name changed.
 
 Operational ledger and financial reporting for a one-person Taiwan
 temporary-tattoo-sticker business.

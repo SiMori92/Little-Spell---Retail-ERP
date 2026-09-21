@@ -197,7 +197,8 @@ audited. Only the permission catalogue itself is skipped.
 
 Stated once, as required, and then dropped. Neither was acted on unilaterally.
 
-**8.1 · The worker service has nothing to run in Slice 0.**
+**8.1 · The worker service has nothing to run in Slice 0.** — **RESOLVED 2026-09-21:
+founder deferred the worker to Slice A.** Railway gets `web` + `Postgres` only.
 Your item 10 and BUILD_TASK §4.2 both specify web + worker + Postgres. The worker is
 there for the importers and the posting engine — Slice A and Slice B. Neither exists.
 A worker deployed now reads no queue, runs no task, and still bills against the $5
@@ -245,12 +246,15 @@ apply_table_grants && uv run python manage.py createsuperuser`.
 
 **② `gh auth login`.** *(needs your browser)* GitHub.com → HTTPS → Yes → web browser.
 
-**③ Tell me to push.** It creates a resource under your account, so I have not run it:
-`gh repo create tattoo-ledger --private --source=. --push`. I will then confirm the
-repo is private, confirm `.env` and `state/` are absent from GitHub, and watch CI.
+**③ Authorise the GitHub CLI.** *(needs your browser)* Target repository:
+**`Little-Spell---Retail-ERP`**, private. `gh` 2.101.0 is installed at
+`~/.local/bin/gh`; it had not been installed at all, and the GitHub account sign-in
+was on the website, not in the CLI, so no credential existed on this machine.
+Run `gh auth login` in your own terminal, then tell me and I will create and push.
 
-**④ Tell me to set up Railway.** *(spends money — Hobby, $5/mo)* I have not touched
-it. `docs/DEPLOY.md` has the full sequence. Decide on the worker first (§8.1).
+**④ Railway — yours.** *(spends money — Hobby, $5/mo)* Founder decision 2026-09-21:
+you will do this yourself. `docs/DEPLOY.md` has the full sequence. `web` + `Postgres`
+only; no worker.
 
 **⑤ Copy the §0.3 rule into `../RUNBOOK.md`** — it is outside this repo and I was
 scoped to `app/` only. The text is in `docs/OPERATING_RULES.md` §1.

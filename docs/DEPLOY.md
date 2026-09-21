@@ -15,19 +15,21 @@ migrations is how you lose your books.
 **This rule also belongs in `../RUNBOOK.md`**, which is outside this repository and
 which this build deliberately did not edit. Copy it across.
 
+Railway deploys from the GitHub repository **`Little-Spell---Retail-ERP`**.
+
 ## Services
 
 | Service | Notes |
 |---|---|
 | `web` | this repo, Dockerfile build |
 | `Postgres` | Railway plugin |
-| `worker` | See the note below before creating it. |
+| `worker` | **DEFERRED to Slice A** by founder decision, 2026-09-21. Do not create it now. |
 
-**On the worker:** BUILD_TASK §4.2 specifies web + worker + postgres, and that is
-right — the worker runs the importers and the posting engine. Neither exists yet.
-A worker deployed in Slice 0 has no queue to read, no task to run, and still bills
-against the $5 Hobby credit every hour. It is listed here as a Slice A item. Decide
-deliberately rather than by default.
+**On the worker — decided.** BUILD_TASK §4.2 specifies web + worker + postgres, and
+that is right *eventually*: the worker runs the importers and the posting engine.
+Neither exists yet, so in Slice 0 it would read no queue, run no task, and still bill
+against the $5 Hobby credit every hour. **Founder decision, 2026-09-21: deferred to
+Slice A.** Create `web` and `Postgres` only.
 
 ## Variables — on the `web` service
 
