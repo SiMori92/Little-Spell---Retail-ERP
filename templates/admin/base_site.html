@@ -1,0 +1,19 @@
+{% extends "admin/base.html" %}
+{% comment %}
+The admin is ~80% of the ops console, so "every page" has to mean the admin's pages
+too. This override puts the quarantine banner above the admin chrome on all of them.
+{% endcomment %}
+{% block title %}{{ title }} | Tattoo Ledger{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">Tattoo Ledger</a></h1>
+{% endblock %}
+
+{% block usertools %}
+{{ block.super }}
+{% endblock %}
+
+{% block header %}
+{% include "includes/dataset_banner.html" %}
+{{ block.super }}
+{% endblock %}

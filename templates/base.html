@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Tattoo Ledger{% endblock %}</title>
+</head>
+<body>
+  {# Seed quarantine, DATA_REVIEW addendum §A1.3 — rendered on EVERY page while SAMPLE. #}
+  {% include "includes/dataset_banner.html" %}
+  {% block content %}{% endblock %}
+</body>
+</html>
