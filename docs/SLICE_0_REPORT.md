@@ -1,9 +1,11 @@
 # SLICE 0 — BUILD REPORT
 
-**Date:** 2026-09-21 · **Repository:** `app/` · **Commit:** `6bc39bd`
-**Status: PARTIALLY COMPLETE.** Everything buildable on this machine is built,
-verified and committed. Four items are outstanding, all of them blocked on things
-only you can do: a sudo password, a GitHub login, and a paid Railway account.
+**Date:** 2026-09-21 · **Local repo:** `app/`
+**GitHub:** <https://github.com/SChiu-project/Little-Spell---Retail-ERP> — **PRIVATE**
+
+**Status: 6 of 8 done.** Everything except the two Railway items is built, pushed,
+and green in CI. The two that remain are blocked only on the Railway account, which
+you have chosen to set up yourself.
 
 ---
 
@@ -11,17 +13,21 @@ only you can do: a sudo password, a GitHub login, and a paid Railway account.
 
 | # | Item | Status | How it was verified |
 |---|---|---|---|
-| 1 | `/admin` loads over HTTPS on the Railway domain, and I can log in | **NOT DONE** | Blocked — no Railway project exists. Verified equivalently on localhost: HTTP 200 at `/admin/` after a real form login as superuser `founder`. |
-| 2 | Three roles + `ALTER DEFAULT PRIVILEGES` applied to the `uat` database | **DONE locally, NOT on uat** | Applied by migration `core/0002`. Queried `pg_roles`: all three exist with LOGIN. Queried `pg_default_acl`: two entries. `uat` does not exist yet. |
-| 3 | Trivial model change → commit → push → Railway deploy → migration in logs | **NOT DONE** | Blocked — no GitHub remote, no Railway project. |
+| 1 | `/admin` loads over HTTPS on the Railway domain, and I can log in | **OUTSTANDING — yours** | No Railway project exists yet. Verified equivalently on localhost: HTTP 200 at `/admin/` after a real form login as superuser `founder`, banner rendering on the page. |
+| 2 | Three roles + `ALTER DEFAULT PRIVILEGES` applied to the `uat` database | **DONE locally and in CI; `uat` pending** | Applied by migration `core/0002`. Queried `pg_roles`: all three exist with LOGIN. Queried `pg_default_acl`: two entries. Re-applied cleanly on CI's Postgres. `uat` does not exist yet — it applies automatically on first deploy, because it is a migration and not a manual step. |
+| 3 | Trivial model change → commit → push → Railway deploy → migration in logs | **OUTSTANDING — yours** | The commit→push→CI half works (four pushes, all green). The Railway deploy half needs the project to exist. |
 | 4 | `pg_dump` taken **and restored**, elapsed time written down | **DONE** | See §3. **Restore elapsed: 0.04 s.** |
-| 5 | `.env` and `state/` absent from the GitHub repo — checked | **DONE for the repo contents, NOT on GitHub** | See §4. The repo has not been pushed, so there is nothing on GitHub to check yet. |
+| 5 | `.env` and `state/` absent from the GitHub repo — checked | **DONE** | Checked against the **GitHub API**, not locally: 63 blobs on `main`; the only `env` match is `.env.example`. No `state/`, `customers`, `inbox/`, `User Data Input`, `.venv/` or `db.sqlite3`. Repo confirmed `"isPrivate": true`. |
 | 6 | The SAMPLE banner renders, and its test FAILS when the banner is removed | **DONE** | See §5. Sabotaged three different ways; each broke the suite. |
-| 7 | CI green on push | **NOT DONE** | Workflow written. All ten steps replayed locally and pass. Cannot be green until pushed. |
+| 7 | CI green on push | **DONE** | Run `35554845111` and `35554918269` both `success`. **Ran 45 tests … OK** against a real Postgres 16 service, with `core.0002_database_roles` applied in CI. |
 | 8 | `docs/SCHEMA_RULINGS.md` exists with all eight rulings verbatim | **DONE** | First file created in the repository. All eight present, unedited. |
 
-**Four of eight complete.** The four outstanding are items 1, 3, 5 (the GitHub half)
-and 7 — a single blocked chain: no GitHub push → no CI, no Railway deploy.
+**Six of eight complete.** The two outstanding — items 1 and 3 — are the Railway
+deploy, which you have taken on yourself. Both close on the first successful deploy;
+nothing in the codebase blocks them.
+
+Note the ordering that makes item 2 safe: the roles are a **migration**, so they apply
+to `uat` on the first deploy without anyone remembering to run them.
 
 ---
 
@@ -246,11 +252,10 @@ apply_table_grants && uv run python manage.py createsuperuser`.
 
 **② `gh auth login`.** *(needs your browser)* GitHub.com → HTTPS → Yes → web browser.
 
-**③ Authorise the GitHub CLI.** *(needs your browser)* Target repository:
-**`Little-Spell---Retail-ERP`**, private. `gh` 2.101.0 is installed at
-`~/.local/bin/gh`; it had not been installed at all, and the GitHub account sign-in
-was on the website, not in the CLI, so no credential existed on this machine.
-Run `gh auth login` in your own terminal, then tell me and I will create and push.
+**③ ~~Authorise the GitHub CLI and push.~~ DONE 2026-09-21.**
+`gh` 2.101.0 installed to `~/.local/bin/gh` without sudo. Authenticated as
+`SChiu-project`. Repository created **private** and pushed; CI green.
+<https://github.com/SChiu-project/Little-Spell---Retail-ERP>
 
 **④ Railway — yours.** *(spends money — Hobby, $5/mo)* Founder decision 2026-09-21:
 you will do this yourself. `docs/DEPLOY.md` has the full sequence. `web` + `Postgres`
