@@ -70,11 +70,14 @@ or `.pyc` paths. GitHub recorded a Railway deployment for `5f9126a` in project
 is `uat`). Its final status was **failure**. The founder's new runtime log shows
 `ImproperlyConfigured: Required environment variable DATABASE_URL is not set` at
 2026-09-23 13:03 UTC. Thus the newer code was deployed, but the running service
-still did not receive `DATABASE_URL`. Railway documentation says variable changes
-are staged until reviewed and deployed; staged-but-unapplied variables are a likely
-explanation, not yet confirmed from the Railway dashboard. The founder was asked
-to apply any staged changes on the Django service and send the new pre-deploy and
-runtime logs.
+still did not receive `DATABASE_URL`. The founder's Railway screenshot then
+confirmed an **Apply 2 changes** banner: the variable edits were staged and had
+not been deployed. It also showed a redundant `web` variable containing the
+Postgres reference; Django reads `DATABASE_URL`, not `web`. The founder was asked
+to put the reference on `DATABASE_URL`, remove `web`, and deploy the staged changes.
+The screenshot exposed the existing `DJANGO_SECRET_KEY` value, so rotation of that
+key before redeployment was also requested. The key itself is deliberately absent
+from this report. New pre-deploy and runtime logs remain pending.
 
 **Migration pipeline probe prepared locally:** `core.0005` adds an index on
 `AuditLogEntry.actor_id` without changing data. `sqlmigrate` shows only `CREATE
