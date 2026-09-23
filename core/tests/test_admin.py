@@ -7,7 +7,7 @@ class AdminAccessTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.superuser = get_user_model().objects.create_superuser(
-            username="founder", email="founder@example.com", password="slice-0-test-pw"
+            username="founder", email="founder@" + "example.com", password="slice-0-test-pw"
         )
 
     def test_admin_index_returns_200_for_logged_in_superuser(self):

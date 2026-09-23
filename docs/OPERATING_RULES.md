@@ -37,3 +37,10 @@ crash-loop a half-migrated app.
 
 `state/` holds customer names and addresses. CI fails the build if a `state/` or
 customer data file ever appears in the repository.
+
+## 6. Test output is public
+
+GitHub Actions logs for this public repository can be read by anyone. Tests must
+never print a row of customer data on failure. Assert on identifiers and counts,
+never on a rendered customer row. This applies to future Slice A importer tests as
+well as any later test that touches real records.

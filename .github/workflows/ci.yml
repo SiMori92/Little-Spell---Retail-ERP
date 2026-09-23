@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+env:
+  EXPECTED_REPOSITORY_VISIBILITY: public
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -32,6 +35,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Guard — repository visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.visibility')"
+          echo "Repository visibility: ${current}; expected: ${EXPECTED_REPOSITORY_VISIBILITY}"
+          test "$current" = "$EXPECTED_REPOSITORY_VISIBILITY"
+
+      - name: Guard — tracked paths
+        run: python3 tools/repo_guard.py --mode tracked --check paths
+
+      - name: Guard — tracked content
+        run: python3 tools/repo_guard.py --mode tracked --check content
+
+      - name: Test the pre-commit guard
+        run: python3 -m unittest tests.test_pre_commit_hook
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -66,17 +86,3 @@ jobs:
 
       - name: Tests
         run: uv run python manage.py test --verbosity 2
-
-      - name: Guard — .env must never be committed
-        run: |
-          if git ls-files --error-unmatch .env 2>/dev/null; then
-            echo "::error::.env is tracked in git."; exit 1
-          fi
-          echo ".env is not tracked."
-
-      - name: Guard — no customer data files in the repo
-        run: |
-          if git ls-files | grep -Ei '(^|/)(state/|customers\.csv|orders\.csv)'; then
-            echo "::error::A state/ or customer data file is tracked in this repo."; exit 1
-          fi
-          echo "No customer data files tracked."

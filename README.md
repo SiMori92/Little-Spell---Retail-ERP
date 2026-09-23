@@ -49,6 +49,7 @@ brew services start postgresql@16
 export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 
 cp .env.example .env
+git config core.hooksPath .githooks
 uv run python -c "import secrets; print(secrets.token_urlsafe(50))"   # into .env
 createdb tattoo_ledger
 
@@ -60,6 +61,13 @@ uv run python manage.py runserver
 ```
 
 `.env` is gitignored and must never be committed.
+
+The pre-commit hook scans staged paths and content before a commit is created.
+Run `git config core.hooksPath .githooks` once per clone. For a deliberate local
+exception, use `ALLOW_DATA_COMMIT=1 git commit ...`; the hook prints a loud warning
+with every staged filename. CI still rejects guarded paths and content, and a push
+to this public repository can expose data before CI runs. Never use the exception
+for customer data or a secret.
 
 The `migrate` step creates the `ops_writer`, `acct_writer` and `reporter` roles, so
 the database user running it needs `CREATEROLE`.

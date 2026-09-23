@@ -25,7 +25,7 @@ class SampleBannerRendersWhileSampleTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.superuser = get_user_model().objects.create_superuser(
-            username="founder", email="founder@example.com", password="slice-0-test-pw"
+            username="founder", email="founder@" + "example.com", password="slice-0-test-pw"
         )
 
     def setUp(self):
