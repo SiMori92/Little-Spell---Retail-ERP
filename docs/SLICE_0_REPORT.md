@@ -99,6 +99,21 @@ reference. The founder is adding PostgreSQL, then setting the Django service's
 `DATABASE_URL` to `${{Postgres.DATABASE_URL}}` and deploying staged changes. The
 GitHub/Railway "success" status is not treated as proof that `/admin/` works.
 
+**13:21 UTC retry:** another runtime log showed the same `DATABASE_URL`-missing
+exception before any database connection attempt. The founder confirmed the
+Postgres service was not yet running. No further code change can correct that
+state; the database service must be deployed first, followed by the Django
+service variable reference and its staged-change deploy. The Railway pre-deploy
+log remains unavailable, so the UAT migration and grants are still unverified.
+
+**Database choice confirmed:** the founder asked whether the SQLite-on-volume
+setup from a separate Railway application (`DB_PATH=/data/semiconductor_data.db`)
+could be reused. It cannot satisfy Slice 0: `core.0002` executes PostgreSQL role
+and default-privilege SQL, `core.0003` creates a PostgreSQL append-only trigger,
+and the backup gate uses `pg_dump`. The other application's database also belongs
+to a separate project. A dedicated PostgreSQL service in this Railway environment
+remains required.
+
 **Time:** original build report estimated approximately 0.7 h of automated build
 time. Takeover investigation and local verification on 2026-09-23 added
 approximately 0.4 h so far; update this when Railway verification is complete.
