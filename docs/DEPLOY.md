@@ -53,6 +53,15 @@ without `DATABASE_URL`. Check the resulting pre-deploy log before retrying the w
 service. See [Railway's variable guide](https://docs.railway.com/variables) and
 [staged changes guide](https://docs.railway.com/deployments/staged-changes).
 
+**Check the database reference:** `DATABASE_URL` on the Django service must resolve
+to the *Postgres service's* `DATABASE_URL`. `${{DATABASE_URL}}` is a self-reference
+and can resolve to an empty string; a separate variable called `web` does nothing
+for Django. If the reference selector shows no Postgres service, verify that a
+PostgreSQL service exists in this same Railway environment. Add one from
+**+ New → Database → PostgreSQL** if absent, then use
+`${{Postgres.DATABASE_URL}}` on the Django service. Do not paste a raw connection
+string into the repository or a screenshot.
+
 ### If the pre-deploy migrate fails with "server does not support SSL"
 
 `DATABASE_URL` from `${{Postgres.DATABASE_URL}}` resolves to Railway's **private**

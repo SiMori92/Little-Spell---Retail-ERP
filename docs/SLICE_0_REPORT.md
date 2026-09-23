@@ -82,8 +82,22 @@ from this report. New pre-deploy and runtime logs remain pending.
 **Migration pipeline probe prepared locally:** `core.0005` adds an index on
 `AuditLogEntry.actor_id` without changing data. `sqlmigrate` shows only `CREATE
 INDEX`, the local migration applied successfully, and all 45 tests passed. This
-probe has not been pushed; it should be deployed only after the base service is
-healthy so its migration can be unambiguously verified in Railway logs.
+probe was initially held locally; the founder later directed that all changes be
+pushed to the public repository, as recorded below.
+
+**Update after `0795e77` push:** the founder instructed that all changes go to the
+public `SiMori92` repository, so `1706f63` (audit actor index) and `0795e77`
+(report update) were pushed there. CI run `35865483159` passed. GitHub ultimately
+reported the Railway deployment for `0795e77` as successful, but the founder's
+runtime log from 2026-09-23 13:13 UTC shows Gunicorn workers still failing with
+`DATABASE_URL` missing. The later Railway variable screenshot shows `DATABASE_URL`
+as `<empty string>` and an attempted `${{DATABASE_URL}}` self-reference. The
+reference selector in that screenshot shows only same-service and Railway-provided
+variables, not a Postgres service. The founder confirmed there is **no Postgres
+service in that Railway environment**. This is why there is no database URL to
+reference. The founder is adding PostgreSQL, then setting the Django service's
+`DATABASE_URL` to `${{Postgres.DATABASE_URL}}` and deploying staged changes. The
+GitHub/Railway "success" status is not treated as proof that `/admin/` works.
 
 **Time:** original build report estimated approximately 0.7 h of automated build
 time. Takeover investigation and local verification on 2026-09-23 added
