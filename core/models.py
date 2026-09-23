@@ -97,7 +97,7 @@ class AuditLogEntry(models.Model):
     """
 
     at = models.DateTimeField(auto_now_add=True, db_index=True)
-    actor_id = models.BigIntegerField(null=True, blank=True)
+    actor_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     actor_username = models.CharField(max_length=150, blank=True, default="")
     action = models.CharField(max_length=6, choices=AuditAction.choices)
     app_label = models.CharField(max_length=100)

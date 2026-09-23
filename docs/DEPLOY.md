@@ -46,6 +46,13 @@ Slice A.** Create `web` and `Postgres` only.
 `RAILWAY_PUBLIC_DOMAIN` is injected by Railway; `settings.py` appends it to
 `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically.
 
+**Apply variable edits:** Railway stages new and changed variables. On the project
+canvas, review the staged-change banner and click **Deploy**. A GitHub push can
+deploy new code while variable edits are still staged, leaving the running container
+without `DATABASE_URL`. Check the resulting pre-deploy log before retrying the web
+service. See [Railway's variable guide](https://docs.railway.com/variables) and
+[staged changes guide](https://docs.railway.com/deployments/staged-changes).
+
 ### If the pre-deploy migrate fails with "server does not support SSL"
 
 `DATABASE_URL` from `${{Postgres.DATABASE_URL}}` resolves to Railway's **private**

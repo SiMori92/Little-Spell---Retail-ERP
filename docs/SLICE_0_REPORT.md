@@ -39,8 +39,8 @@ repo contains no `.env`, `state/`, or `customers.csv` paths in its current tree;
 it does contain tracked `__pycache__` files. The active GitHub CLI account
 `SChiu-project` has push permission to both repositories. No further GitHub grant
 is needed. The founder chose the public `SiMori92` repository as the authoritative
-deployment source on 2026-09-23. A sync commit is being prepared locally; pushing
-it is pending review because it publishes changes and can trigger Railway deploy.
+deployment source on 2026-09-23. The founder approved the sync commit, which was
+pushed as `5f9126a` on 2026-09-23.
 
 **Remediation in progress:** on `uat` → `web` → Variables, set `DATABASE_URL` as the
 Railway reference `${{Postgres.DATABASE_URL}}`; confirm a unique
@@ -60,6 +60,27 @@ Actions run for `8e00768` succeeded. A recursive GitHub tree query returned no
 Postgres, all 45 Django tests passed, and local Postgres contained all three roles
 and two default privilege records. These checks do not prove that the UAT database
 has migrated.
+
+**After public push:** local `origin` now points at `SiMori92/Little-Spell---Retail-ERP`
+and `main` matches public commit `5f9126a`. GitHub Actions run `35864190266` passed
+all steps, including Postgres migrations, grants, tests, and file guards. The public
+tree has 63 tracked paths and zero `.env`, `state/`, `customers.csv`, `__pycache__`,
+or `.pyc` paths. GitHub recorded a Railway deployment for `5f9126a` in project
+`humorous-renewal`, environment labelled `production` (the requested Slice 0 name
+is `uat`). Its final status was **failure**. The founder's new runtime log shows
+`ImproperlyConfigured: Required environment variable DATABASE_URL is not set` at
+2026-09-23 13:03 UTC. Thus the newer code was deployed, but the running service
+still did not receive `DATABASE_URL`. Railway documentation says variable changes
+are staged until reviewed and deployed; staged-but-unapplied variables are a likely
+explanation, not yet confirmed from the Railway dashboard. The founder was asked
+to apply any staged changes on the Django service and send the new pre-deploy and
+runtime logs.
+
+**Migration pipeline probe prepared locally:** `core.0005` adds an index on
+`AuditLogEntry.actor_id` without changing data. `sqlmigrate` shows only `CREATE
+INDEX`, the local migration applied successfully, and all 45 tests passed. This
+probe has not been pushed; it should be deployed only after the base service is
+healthy so its migration can be unambiguously verified in Railway logs.
 
 **Time:** original build report estimated approximately 0.7 h of automated build
 time. Takeover investigation and local verification on 2026-09-23 added
