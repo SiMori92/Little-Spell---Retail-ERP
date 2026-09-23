@@ -15,7 +15,10 @@ migrations is how you lose your books.
 **This rule also belongs in `../RUNBOOK.md`**, which is outside this repository and
 which this build deliberately did not edit. Copy it across.
 
-Railway deploys from the GitHub repository **`Little-Spell---Retail-ERP`**.
+Railway deploys from **`SiMori92/Little-Spell---Retail-ERP`**, the public
+repository selected by the founder on 2026-09-23. The old
+`SChiu-project/Little-Spell---Retail-ERP` private repository is a separate copy;
+commits pushed only there do not update this Railway deployment.
 
 ## Services
 

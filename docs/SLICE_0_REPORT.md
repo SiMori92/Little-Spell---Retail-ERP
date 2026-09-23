@@ -1,11 +1,71 @@
 # SLICE 0 — BUILD REPORT
 
 **Date:** 2026-09-21 · **Local repo:** `app/`
-**GitHub:** <https://github.com/SChiu-project/Little-Spell---Retail-ERP> — **PRIVATE**
+**GitHub at original build:** <https://github.com/SChiu-project/Little-Spell---Retail-ERP> — **PRIVATE**
+**Chosen deployment source, 2026-09-23:** <https://github.com/SiMori92/Little-Spell---Retail-ERP> — **PUBLIC**
 
-**Status: 6 of 8 done.** Everything except the two Railway items is built, pushed,
-and green in CI. The two that remain are blocked only on the Railway account, which
-you have chosen to set up yourself.
+**Current status (2026-09-23): 5 of 8 fully verified.** Items 1, 2 (on UAT), and 3
+still require a successful Railway deployment. The original 2026-09-21 build
+record below describes what was verified locally at that time.
+
+## Takeover and Railway crash diagnosis — 2026-09-23
+
+The founder supplied deploy logs from 2026-09-21 03:00 UTC. Gunicorn bound to
+`0.0.0.0:8080`, then the worker failed while importing Django settings:
+
+```text
+File "/app/config/settings.py", line 84
+    default=os.environ["DATABASE_URL"], conn_max_age=600, ssl_require=not DEBUG
+KeyError: 'DATABASE_URL'
+Reason: Worker failed to boot.
+```
+
+**Confirmed immediate cause:** the deployed `web` container had no `DATABASE_URL`.
+The traceback is from a revision older than local commit `8e00768`, which now raises
+an actionable `ImproperlyConfigured` error for a missing variable. That code change
+improves the diagnostic; the required Railway variable is still missing. Gunicorn's
+port binding was successful, so `PORT` was not this crash's cause. The supplied
+excerpt contains no pre-deploy output, so whether Railway actually ran the configured
+`migrate && apply_table_grants` command remains unverified.
+
+**Repository mismatch found on 2026-09-23:** this app's `origin` is
+`SChiu-project/Little-Spell---Retail-ERP` (private, latest commit `8e00768`). The
+founder's GitHub screenshot shows a separate repository,
+`SiMori92/Little-Spell---Retail-ERP` (public, one upload commit `6739b083` from
+2026-09-21 02:31 UTC). Line 84 of the public repo's `config/settings.py` exactly
+matches the Railway traceback. This strongly indicates Railway deployed the public
+copy, but the service's linked source has not been inspected directly. The public
+repo contains no `.env`, `state/`, or `customers.csv` paths in its current tree;
+it does contain tracked `__pycache__` files. The active GitHub CLI account
+`SChiu-project` has push permission to both repositories. No further GitHub grant
+is needed. The founder chose the public `SiMori92` repository as the authoritative
+deployment source on 2026-09-23. A sync commit is being prepared locally; pushing
+it is pending review because it publishes changes and can trigger Railway deploy.
+
+**Remediation in progress:** on `uat` → `web` → Variables, set `DATABASE_URL` as the
+Railway reference `${{Postgres.DATABASE_URL}}`; confirm a unique
+`DJANGO_SECRET_KEY` and `DJANGO_DEBUG=0` without disclosing their values. Redeploy
+the latest `main`, confirm that pre-deploy runs migrations and grants, and test
+`/admin/` over HTTPS. The founder is applying the Railway variable because the
+Railway CLI's OAuth refresh returned `invalid_grant`, and no connected browser was
+available. Do not mark the Railway items complete until the new logs and live site
+have been checked.
+
+**Checks performed during takeover:** Git working tree was clean before this report
+edit; the Git root is `app/`; the GitHub API reports the configured `origin` private.
+The latest visible GitHub
+Actions run for `8e00768` succeeded. A recursive GitHub tree query returned no
+`.env`, `state/`, or `customers.csv` path. Locally, Django's system check and
+`makemigrations --check --dry-run` passed, `migrate --check` passed against local
+Postgres, all 45 Django tests passed, and local Postgres contained all three roles
+and two default privilege records. These checks do not prove that the UAT database
+has migrated.
+
+**Time:** original build report estimated approximately 0.7 h of automated build
+time. Takeover investigation and local verification on 2026-09-23 added
+approximately 0.4 h so far; update this when Railway verification is complete.
+
+---
 
 ---
 
