@@ -33,7 +33,8 @@ class MigrationsRunForwardAndBackwardTests(TransactionTestCase):
     # DatasetSettings.load() recreates the singleton as SAMPLE on demand.
 
     def tearDown(self):
-        call_command("migrate", "core", verbosity=0)
+        # Slice A's ops controls depend on core roles. Restore the full graph.
+        call_command("migrate", verbosity=0)
 
     def test_core_migrates_backward_to_zero_and_forward_again(self):
         self.assertTrue(table_exists("core_auditlogentry"))
@@ -113,16 +114,12 @@ class NoMissingMigrationsTests(TransactionTestCase):
 
 
 class SliceZeroBoundaryTests(TransactionTestCase):
-    """Slice 0 is infrastructure only. These fail the moment a business model appears."""
+    """Slice A may add ops facts; accounting tables remain Slice B."""
 
-    def test_ops_and_acct_have_no_models(self):
+    def test_ops_has_slice_a_models_and_acct_stays_empty(self):
         from django.apps import apps
 
-        for label in ("ops", "acct"):
-            with self.subTest(app=label):
-                models = apps.get_app_config(label).get_models()
-                self.assertEqual(
-                    [m.__name__ for m in models],
-                    [],
-                    f"{label} must stay empty in Slice 0; models belong to Slice A/B.",
-                )
+        ops_names = {m.__name__ for m in apps.get_app_config("ops").get_models()}
+        self.assertTrue({"Product", "Channel", "Order", "OrderLine", "Shipment",
+                         "InventoryMove", "LedgerEvent"} <= ops_names)
+        self.assertEqual([m.__name__ for m in apps.get_app_config("acct").get_models()], [])

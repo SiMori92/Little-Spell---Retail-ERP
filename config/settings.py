@@ -1,7 +1,7 @@
 """
 Django settings for the tattoo-ledger project.
 
-Slice 0 — infrastructure only. There are no business models in this project yet.
+Slice 0 supplies infrastructure; Slice A adds operational models in ops.
 
 Segregation of duties (BUILD_TASK §3.1, as corrected by KICKSTART §1): the two Django
 apps `ops` and `acct` ARE the segregation. Django prefixes tables with the app label,
@@ -65,7 +65,7 @@ INSTALLED_APPS = [
     "rest_framework",
     # Platform infrastructure: dataset quarantine, audit log, database roles.
     "core",
-    # The segregation. Both are deliberately EMPTY in Slice 0 — no models.
+    # The segregation: Slice A owns ops facts; Slice B will own acct postings.
     "ops",
     "acct",
 ]

@@ -7,10 +7,10 @@ independent; only the repository name changed.
 Operational ledger and financial reporting for a one-person Taiwan
 temporary-tattoo-sticker business.
 
-**This repository is at Slice 0: infrastructure only.** There are no orders, no
-inventory, no lots, no shipments, no purchase orders, no journals, no accounts and no
-customers. That is deliberate — Slice 0 is plumbing, and modelling orders before the
-deploy pipeline works means debugging both at once.
+Slice 0 established the infrastructure. Slice A adds operational tables and a
+sample-only Etsy importer. The schema fixtures remain `verified:false`, so the
+importer's `--commit` path refuses by design. No accounting journal, account table,
+or posting engine exists yet.
 
 ## Why this repo lives in `app/`
 
@@ -24,10 +24,10 @@ them. The repository root is therefore `app/` and nothing above it is tracked.
 |---|---|
 | `config/` | Django project: settings, urls, wsgi |
 | `core/` | Platform infrastructure — dataset quarantine, audit log, DB roles |
-| `ops/` | Agent 1's domain. **Empty in Slice 0.** Slice A fills it. |
+| `ops/` | Slice A operational tables and Etsy importer. |
 | `acct/` | Agent 2's domain. **Empty in Slice 0.** Slice B fills it. |
 | `ops_scripts/` | backup and restore-test shell scripts |
-| `docs/` | schema rulings, deploy guide, Slice 0 report |
+| `docs/` | schema rulings, deploy guide and slice reports |
 
 `ops` and `acct` ARE the segregation of duties. Django prefixes tables with the app
 label, giving `ops_*` and `acct_*`, and grants are made by prefix. There are no
@@ -78,6 +78,25 @@ the database user running it needs `CREATEROLE`.
 uv run python manage.py collectstatic --noinput   # WhiteNoise manifest
 uv run python manage.py test
 ```
+
+## Slice A Etsy dry-run
+
+The filenames identify the dataset kind. The application begins in `SAMPLE`, so
+the provided sample files can be inspected with:
+
+```bash
+uv run python manage.py import_etsy \
+  --orders ../inbox/etsy/SAMPLE_etsy_orderitems_2025-12.csv \
+  --statement ../inbox/etsy/SAMPLE_etsy_statement_2025-12.csv
+```
+
+The dry-run prints counts, order IDs for reconciling items, and blockers. It never
+prints customer rows. A founder-maintained `../state/coupon_funding.csv` may be
+supplied with `--coupon-funding PATH`; it needs `coupon_code,funded_by,valid_from,valid_to`
+columns, with ISO dates and `seller` or `platform` for discounted orders. The
+importer reads this file but never creates or edits it. The unverified schema
+fixtures prevent `--commit` even if a coupon map is present. See
+`docs/SLICE_A_REPORT.md` for the unresolved contract and coverage gaps.
 
 ## Sample-data quarantine
 
