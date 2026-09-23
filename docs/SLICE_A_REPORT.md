@@ -91,9 +91,12 @@ The sample has five one-line orders and ten statement rows. It contains **no**
 refund, cancellation, payout reversal, domestic Taiwan sale, or multi-line order.
 Their parser/transition paths were exercised with synthetic tests, not sample data.
 Nonzero sales tax and a second statement-period digest were also tested
-synthetically. No landed cost exists, so COGS event amounts remain provisional/null.
+synthetically. CI uses sanitized CSV fixtures in `tests/fixtures/`: the exact
+headers, row counts, IDs and arithmetic are preserved; customer fields and
+statement titles are blank. The original samples remain outside the repository.
+No landed cost exists, so COGS event amounts remain provisional/null.
 
-Test output: `python manage.py test --verbosity 1` — **75 tests, OK**;
+Test output: `python manage.py test --verbosity 1` — **76 tests, OK**;
 `python manage.py makemigrations --check --dry-run` — **No changes detected**;
 `python manage.py check` — **no issues**. Tests assert identifiers and counts
 and never render customer rows into public Actions logs.

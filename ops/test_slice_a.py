@@ -52,9 +52,17 @@ class ImportControlTests(TestCase):
             )
 
     def paths(self):
-        base = Path(__file__).resolve().parents[2] / "inbox" / "etsy"
-        return (base / "SAMPLE_etsy_orderitems_2025-12.csv",
-                base / "SAMPLE_etsy_statement_2025-12.csv")
+        base = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+        return (base / "SAMPLE_etsy_orderitems_2025-12_fixture.csv",
+                base / "SAMPLE_etsy_statement_2025-12_fixture.csv")
+
+    def test_fixture_contains_no_customer_fields(self):
+        order_path, statement_path = self.paths()
+        rows = _read_csv(order_path, "orderitems")
+        private = ("Buyer", "Ship Name", "Ship Address1", "Ship Address2",
+                   "Ship City", "Ship State", "Ship Zipcode")
+        self.assertTrue(all(not row[column] for row in rows for column in private))
+        self.assertTrue(all(not row["Title"] for row in _read_csv(statement_path, "statement")))
 
     def make_order(self, order_id="synthetic", status="placed"):
         return Order.objects.create(

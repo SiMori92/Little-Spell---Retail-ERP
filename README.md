@@ -81,13 +81,14 @@ uv run python manage.py test
 
 ## Slice A Etsy dry-run
 
-The filenames identify the dataset kind. The application begins in `SAMPLE`, so
-the provided sample files can be inspected with:
+The filenames identify the dataset kind. The application begins in `SAMPLE`.
+This repository contains sanitized regression fixtures (customer fields blank)
+so a fresh clone can run the dry-run without the founder's private workspace:
 
 ```bash
 uv run python manage.py import_etsy \
-  --orders ../inbox/etsy/SAMPLE_etsy_orderitems_2025-12.csv \
-  --statement ../inbox/etsy/SAMPLE_etsy_statement_2025-12.csv
+  --orders tests/fixtures/SAMPLE_etsy_orderitems_2025-12_fixture.csv \
+  --statement tests/fixtures/SAMPLE_etsy_statement_2025-12_fixture.csv
 ```
 
 The dry-run prints counts, order IDs for reconciling items, and blockers. It never

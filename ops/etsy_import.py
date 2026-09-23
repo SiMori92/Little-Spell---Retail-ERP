@@ -97,7 +97,9 @@ def _date(raw: str, kind: str):
 
 
 def _period(path: Path) -> str:
-    match = re.search(r"(\d{4}-(?:0[1-9]|1[0-2]))\.csv\Z", path.name)
+    # Sanitized in-repo tests use the guarded *_fixture.csv suffix. Real ACTUAL
+    # filenames are still constrained by _ACTUAL_NAME in quarantine_file().
+    match = re.search(r"(\d{4}-(?:0[1-9]|1[0-2]))(?:_fixture)?\.csv\Z", path.name)
     if not match:
         raise ImportRefused(f"Filename {path.name} has no YYYY-MM statement period")
     return match.group(1)
