@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Reports — Tattoo Ledger{% endblock %}
+{% block content %}
+<main style="font-family:system-ui,sans-serif;max-width:72rem;margin:2rem auto;padding:0 1rem;">
+  <h1>Reports</h1>
+  <form method="get"><label>Source period <input name="period" value="{{ period }}" pattern="[0-9]{4}-[0-9]{2}" required></label> <button type="submit">Show</button></form>
+  <ul>
+  {% for slug, builder in reports.items %}<li><a href="{% url 'report-detail' slug %}?period={{ period }}">{{ slug }}</a></li>{% endfor %}
+  </ul>
+  <p>All figures show their source basis. ABSENT means an input has not been evidenced.</p>
+</main>
+{% endblock %}

@@ -1,9 +1,10 @@
-"""Frozen v1.2 event catalogue binding. No catch-all or guessed amounts."""
+"""Frozen v1.3 event catalogue binding. No catch-all or guessed amounts."""
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from functools import partial
 
 from django.db import transaction
+from django.conf import settings
 from django.utils import timezone
 
 from acct.models import Account, AcctManualEntry, FxRate, JournalEntry, JournalLine, MANUAL_EVENT_TYPES, WacPosition
@@ -48,6 +49,7 @@ class Leg:
     txn_amount: Decimal | None = None
     txn_currency: str | None = None
     fx_rate: FxRate | None = None
+    sku: str | None = None
 
 
 def dr(code, value, **kwargs):
@@ -188,7 +190,7 @@ def cogs(e, reprint=False):
         if sum(onhand) < 0:
             raise PostingError(f"SKU {sku} on-hand would be negative")
         value = money(Decimal(qty) * position.value_twd / position.qty_packs)
-        lines += pair("5111", "1231", value)
+        lines += [dr("5111", value, sku=sku), cr("1231", value, sku=sku)]
     packaging = e.payload.get("packaging_twd")
     if packaging:
         lines += pair("5114", "1233", packaging)
@@ -265,12 +267,14 @@ def settlement(e):
     if public is None:
         raise PostingError("settlement requires public USD rate")
     deposited = amt(e)
+    if not deposited or not usd:
+        raise PostingError("settlement amounts must be positive")
     if source == "derived" and (deposited / usd).quantize(Decimal("0.000001")) != applied:
         raise PostingError("derived channel rate does not match deposit / USD settled")
     carrying = money(usd * public.rate)
     spread = carrying - deposited
-    if spread < 0:
-        raise PostingError("channel rate exceeds public rate; negative conversion fee needs ruling")
+    if abs(spread) / deposited > settings.SETTLEMENT_SPREAD_TOLERANCE_FRACTION:
+        raise PostingError("settlement rate spread exceeds provisional tolerance; escalate rate evidence")
     channel, _ = FxRate.objects.get_or_create(
         rate_date=e.occurred_at.astimezone(timezone.get_current_timezone()).date(),
         currency="USD", kind="channel", source_event_key=e.idempotency_key,
@@ -279,8 +283,10 @@ def settlement(e):
     if channel.rate != applied or channel.rate_source != source:
         raise PostingError("stored channel rate conflicts with event")
     lines = [dr("1121", deposited), cr("1191", carrying, txn_amount=usd, txn_currency="USD", fx_rate=public)]
-    if spread:
+    if spread > 0:
         lines.append(dr("6116", spread))
+    elif spread < 0:
+        lines.append(cr("6116", -spread))
     return lines
 
 
@@ -293,9 +299,9 @@ def settlement_reversed(e):
         lines.append(dr("6181", fee))
     delta = bank - original - fee
     if delta > 0:
-        lines.append(dr("7111", delta))
+        lines.append(dr("6116", delta))
     elif delta < 0:
-        lines.append(cr("7111", -delta))
+        lines.append(cr("6116", -delta))
     return lines
 
 
@@ -310,7 +316,8 @@ def po_received(e):
         raise PostingError("SKU landed cost does not tie to product inventory debit")
     if any(money(required(row, "qty_packs")) <= 0 or not row.get("sku") for row in receipts):
         raise PostingError("PO receipt needs positive SKU quantities")
-    lines = [dr("1231", c["product"]), dr("1233", c["packaging"]), cr("2171", c["supplier"]), cr("2172", c["freight"]), cr("2192", c["duty"]), cr("1232", c["in_transit"])]
+    lines = [dr("1231", row["landed_cost_twd"], sku=row["sku"]) for row in receipts]
+    lines += [dr("1233", c["packaging"]), cr("2171", c["supplier"]), cr("2172", c["freight"]), cr("2192", c["duty"]), cr("1232", c["in_transit"])]
     return [x for x in lines if x.debit or x.credit]
 
 
@@ -321,7 +328,7 @@ def po_adjusted(e):
         raise PostingError("late PO cost needs known lot and on-hand ratio")
     value, _ = translated(e)
     onhand_amount = money(value * onhand)
-    return [dr("1231", onhand_amount), dr("5112", value-onhand_amount), cr(p.get("payable_account", "2172"), value)]
+    return [dr("1231", onhand_amount, sku=p["sku"]), dr("5112", value-onhand_amount, sku=p["sku"]), cr(p.get("payable_account", "2172"), value)]
 
 
 def po_paid(e):
@@ -338,7 +345,7 @@ def inventory_adjusted(e):
     if position is None or position.qty_packs < qty or position.qty_packs <= 0:
         raise PostingError("inventory adjustment lacks sufficient SKU WAC stock")
     value = money(position.value_twd * qty / position.qty_packs)
-    return pair("5121", e.payload.get("inventory_account", "1231"), value)
+    return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"])]
 
 
 def opening_counted(e):
@@ -346,7 +353,7 @@ def opening_counted(e):
         raise PostingError("opening count fires once per dataset")
     required(e.payload, "sku")
     value = money(money(required(e.payload, "qty")) * money(required(e.payload, "agreed_unit_cost_twd")))
-    return pair(e.payload.get("inventory_account", "1231"), e.payload.get("capital_account", "3111"), value)
+    return [dr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"]), cr(e.payload.get("capital_account", "3111"), value)]
 
 
 def cost_recorded(e):
@@ -515,7 +522,7 @@ def post_event(event):
         if account.is_reserved:
             raise PostingError(f"account {item.account} is RESERVED")
         JournalLine.objects.create(entry=entry, account=account, debit=item.debit, credit=item.credit,
-            txn_amount=item.txn_amount, txn_currency=item.txn_currency, fx_rate=item.fx_rate)
+            txn_amount=item.txn_amount, txn_currency=item.txn_currency, fx_rate=item.fx_rate, sku=item.sku)
     if lines:
         apply_wac(event, lines)
     if source_kind == "ops":

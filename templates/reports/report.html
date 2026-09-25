@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }} — Tattoo Ledger{% endblock %}
+{% block content %}
+<main style="font-family:system-ui,sans-serif;max-width:100%;margin:2rem auto;padding:0 1rem;">
+  <p><a href="{% url 'report-index' %}?period={{ report.period }}">All reports</a></p>
+  <h1>{{ report.title }}</h1>
+  <p>Source period: {{ report.period }} · Dataset: {{ report.dataset_kind }} · Overall cost basis: {{ report.cost_basis }}</p>
+  <p><a href="?period={{ report.period }}&amp;format=csv">Download CSV with provenance</a></p>
+  <div style="overflow-x:auto"><table border="1" cellpadding="7" style="border-collapse:collapse;min-width:100%;text-align:left;">
+    <thead><tr>{% for column in report.columns %}<th>{{ column.label }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for cells in display_rows %}<tr>{% for cell in cells %}<td data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{{ cell.text }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {% for note in report.notes %}<p>{{ note }}</p>{% endfor %}
+</main>
+{% endblock %}

@@ -99,6 +99,7 @@ class InventoryMove(Provenance):
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     qty_delta_packs = models.IntegerField()
+    value_delta_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
     occurred_at = models.DateTimeField()
     idempotency_key = models.CharField(max_length=255, unique=True)
 
@@ -106,6 +107,7 @@ class InventoryMove(Provenance):
         constraints = [
             models.CheckConstraint(condition=~Q(qty_delta_packs=0), name="ops_move_nonzero"),
             models.CheckConstraint(condition=(Q(kind__in=["opening", "received", "returned"], qty_delta_packs__gt=0) | Q(kind__in=["sold", "written_off"], qty_delta_packs__lt=0) | (Q(kind="adjusted") & ~Q(qty_delta_packs=0))), name="ops_move_sign_discipline"),
+            models.CheckConstraint(condition=Q(value_delta_twd__isnull=True) | (Q(qty_delta_packs__gt=0, value_delta_twd__gt=0) | Q(qty_delta_packs__lt=0, value_delta_twd__lt=0)), name="ops_move_value_sign"),
         ]
 
 

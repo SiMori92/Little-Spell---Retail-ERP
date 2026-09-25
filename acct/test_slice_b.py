@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError, connection, transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from acct.gates import assert_g1
 from acct.models import Account, AcctManualEntry, FxRate, JournalEntry, JournalLine, Period, WacPosition
@@ -60,6 +60,7 @@ class PostingRulesTests(TestCase):
                 lines = plan(event)
                 self.assertGreaterEqual(len(lines), 2)
                 self.assertEqual(sum(x.debit-x.credit for x in lines), 0)
+                self.assertNotIn("7111", [line.account for line in lines], name)
         self.assertEqual(len(OPS_RULES), 22)
 
     def test_blocked_and_memo_paths_are_explicit(self):
@@ -86,6 +87,29 @@ class PostingRulesTests(TestCase):
         e.payload["rate_source"] = "stated"
         with self.assertRaisesRegex(PostingError, "conflicts"):
             plan(e)
+
+    def test_addendum_d_negative_spread_credits_6116_and_large_spread_escalates(self):
+        favourable = self.event("settlement.received", amount=33000, payload={"channel_applied_fx_rate":"33.000000", "rate_source":"stated", "usd_settled":"10", "rate_evidence_ref":"synthetic-favourable"})
+        favourable.idempotency_key = "synthetic-favourable"
+        lines = plan(favourable)
+        self.assertEqual([(line.account, line.credit) for line in lines if line.account == "6116"], [("6116", Decimal("10.0000"))])
+        self.assertNotIn("7111", [line.account for line in lines])
+        excessive = self.event("settlement.received", amount=10000, payload={"channel_applied_fx_rate":"10.000000", "rate_source":"stated", "usd_settled":"10", "rate_evidence_ref":"synthetic-excessive"})
+        excessive.idempotency_key = "synthetic-excessive"
+        with self.assertRaisesRegex(PostingError, "provisional tolerance"):
+            plan(excessive)
+        with override_settings(SETTLEMENT_SPREAD_TOLERANCE_FRACTION=Decimal("0.01")):
+            with self.assertRaisesRegex(PostingError, "provisional tolerance"):
+                plan(favourable)
+
+    def test_addendum_d_reversal_rate_delta_never_uses_7111(self):
+        for bank in ("330", "310"):
+            with self.subTest(bank=bank):
+                event = self.event("settlement.reversed", payload={"original_carrying_twd":"320", "bank_reversal_twd":bank, "reversal_fee_twd":"0"})
+                lines = plan(event)
+                self.assertIn("6116", [line.account for line in lines])
+                self.assertNotIn("7111", [line.account for line in lines])
+                self.assertEqual(sum(line.debit-line.credit for line in lines), 0)
 
     def test_listing_fee_and_advertising_guard(self):
         listing = self.event("cost.recorded", entity_table="ops.etsystatementrow", payload={"category":"platform_listing_fee","settled_via":"etsy_rail"})

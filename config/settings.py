@@ -11,6 +11,7 @@ hand-written db_table values or a database router.
 """
 
 import os
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import dj_database_url
@@ -48,6 +49,18 @@ SECRET_KEY = required_env(
     'Generate one with: uv run python -c "import secrets; print(secrets.token_urlsafe(50))"',
 )
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
+LOGIN_URL = "/admin/login/"
+
+# Provisional safety threshold, not a founder-approved commercial tolerance.
+# Escalate either sign of Etsy conversion spread above 10% of the TWD deposit.
+try:
+    SETTLEMENT_SPREAD_TOLERANCE_FRACTION = Decimal(
+        os.environ.get("DJANGO_SETTLEMENT_SPREAD_TOLERANCE_FRACTION", "0.10")
+    )
+except InvalidOperation as exc:
+    raise ImproperlyConfigured("DJANGO_SETTLEMENT_SPREAD_TOLERANCE_FRACTION must be a decimal") from exc
+if not SETTLEMENT_SPREAD_TOLERANCE_FRACTION.is_finite() or not 0 < SETTLEMENT_SPREAD_TOLERANCE_FRACTION <= 1:
+    raise ImproperlyConfigured("DJANGO_SETTLEMENT_SPREAD_TOLERANCE_FRACTION must be within (0, 1]")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 CSRF_TRUSTED_ORIGINS = []

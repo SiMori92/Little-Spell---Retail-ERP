@@ -97,6 +97,7 @@ class JournalEntry(models.Model):
 class JournalLine(models.Model):
     entry = models.ForeignKey(JournalEntry, related_name="lines", on_delete=models.PROTECT)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
+    sku = models.CharField(max_length=20, null=True, blank=True, db_index=True)
     debit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     credit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     txn_amount = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
