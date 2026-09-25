@@ -94,14 +94,21 @@ class DatabaseRolesTests(TransactionTestCase):
             )
             self.assertEqual(cursor.fetchone()[0], 0, "reporter must be SELECT only")
 
-    def test_there_are_no_acct_tables_yet_so_no_revoke_was_attempted(self):
-        """The journal REVOKE is a Slice B migration. Assert the premise still holds."""
+    def test_slice_b_accounting_tables_exist(self):
+        """Slice B creates its accounting tables, including SKU valuation."""
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM pg_tables "
                 "WHERE schemaname = 'public' AND tablename LIKE 'acct\\_%'"
             )
-            self.assertEqual(cursor.fetchone()[0], 0)
+            self.assertEqual(cursor.fetchone()[0], 7)
+
+    def test_reapplying_grants_does_not_restore_journal_update(self):
+        call_command("apply_table_grants", verbosity=0)
+        with connection.cursor() as cursor:
+            for table in ("acct_journalentry", "acct_journalline"):
+                cursor.execute("SELECT has_table_privilege('acct_writer', %s, 'UPDATE')", [table])
+                self.assertFalse(cursor.fetchone()[0])
 
 
 class NoMissingMigrationsTests(TransactionTestCase):
@@ -114,12 +121,15 @@ class NoMissingMigrationsTests(TransactionTestCase):
 
 
 class SliceZeroBoundaryTests(TransactionTestCase):
-    """Slice A may add ops facts; accounting tables remain Slice B."""
+    """Ops facts and Slice B accounting models stay in separate apps."""
 
-    def test_ops_has_slice_a_models_and_acct_stays_empty(self):
+    def test_ops_and_accounting_models_are_separate(self):
         from django.apps import apps
 
         ops_names = {m.__name__ for m in apps.get_app_config("ops").get_models()}
         self.assertTrue({"Product", "Channel", "Order", "OrderLine", "Shipment",
                          "InventoryMove", "LedgerEvent"} <= ops_names)
-        self.assertEqual([m.__name__ for m in apps.get_app_config("acct").get_models()], [])
+        self.assertEqual(
+            {m.__name__ for m in apps.get_app_config("acct").get_models()},
+            {"Account", "FxRate", "Period", "JournalEntry", "JournalLine", "AcctManualEntry", "WacPosition"},
+        )

@@ -106,8 +106,12 @@ BEGIN
             EXECUTE format('GRANT SELECT ON public.%I TO acct_writer', t.tablename);
 
         ELSIF t.tablename LIKE 'acct\\_%' THEN
-            EXECUTE format(
-                'GRANT SELECT, INSERT, UPDATE ON public.%I TO acct_writer', t.tablename);
+            IF t.tablename IN ('acct_journalentry', 'acct_journalline', 'acct_acctmanualentry') THEN
+                EXECUTE format('REVOKE UPDATE, DELETE ON public.%I FROM PUBLIC, ops_writer, acct_writer', t.tablename);
+                EXECUTE format('GRANT SELECT, INSERT ON public.%I TO acct_writer', t.tablename);
+            ELSE
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE ON public.%I TO acct_writer', t.tablename);
+            END IF;
             -- Agent 1 must never write a journal line. It does not read the books either.
             EXECUTE format('REVOKE ALL ON public.%I FROM ops_writer', t.tablename);
 
@@ -121,18 +125,8 @@ BEGIN
 END
 $$;
 
--- =========================================================================
--- SLICE B, NOT SLICE 0 -- the line that makes the books defensible:
---
---   REVOKE UPDATE, DELETE ON acct_journalentry, acct_journalline
---     FROM PUBLIC, ops_writer, acct_writer;
---
--- It is deliberately ABSENT here. Those tables do not exist yet; running it now
--- would simply error. It belongs in the SAME Slice B migration that creates the
--- journal tables, so the tables are never writable for even one deploy.
--- Corrections are reversing entries -- never an UPDATE, never a DELETE.
--- Recorded in docs/SCHEMA_RULINGS.md so it is not lost between slices.
--- =========================================================================
+-- Slice B's journal and manual event tables are append-only. The migration
+-- creates triggers; this convergent grant loop preserves the REVOKE on deploy.
 """
 
 REVOKE_TABLE_GRANTS_SQL = """

@@ -55,6 +55,11 @@ class PreCommitHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "--verify", "HEAD").returncode, 0)
 
+    def test_concept_named_migration_is_allowed(self):
+        self.stage("acct/migrations/0002_settlements.py", "# schema migration\n")
+        result = self.git("commit", "-m", "migration")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_env_example_is_allowed(self):
         self.stage(".env.example", "DJANGO_DEBUG=0\n")
         result = self.git("commit", "-m", "example")

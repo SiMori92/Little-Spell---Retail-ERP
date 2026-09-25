@@ -129,7 +129,7 @@ class LedgerEvent(Provenance):
     payload = models.JSONField(default=dict)
     idempotency_key = models.CharField(max_length=255, unique=True)
     posted_entry_id = models.BigIntegerField(null=True, blank=True)  # Slice B links this.
-    posting_error = models.TextField(blank=True, default="")
+    posting_error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

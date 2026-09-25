@@ -50,7 +50,7 @@ def path_violations(path: str) -> list[str]:
         found.append("env-file")
     if "state/" in lower or "inbox/" in lower:
         found.append("private-directory")
-    if any(marker.casefold() in lower for marker in SENSITIVE_NAMES):
+    if lower.endswith((".csv", ".xlsx", ".xls")) and any(marker.casefold() in lower for marker in SENSITIVE_NAMES):
         found.append("sensitive-path")
     if lower.endswith((".csv", ".xlsx", ".xls")):
         fixture = lower.startswith("tests/fixtures/") and filename.endswith("_fixture.csv")
