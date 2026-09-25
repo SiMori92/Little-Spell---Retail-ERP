@@ -1,15 +1,33 @@
 {% extends "base.html" %}
-{% block title %}{{ report.title }} — Tattoo Ledger{% endblock %}
+{% block title %}{{ report.title }} · Little Spell Ledger{% endblock %}
+{% block section_label %}Reports{% endblock %}
 {% block content %}
-<main style="font-family:system-ui,sans-serif;max-width:100%;margin:2rem auto;padding:0 1rem;">
-  <p><a href="{% url 'report-index' %}?period={{ report.period }}">All reports</a></p>
-  <h1>{{ report.title }}</h1>
-  <p>Source period: {{ report.period }} · Dataset: {{ report.dataset_kind }} · Overall cost basis: {{ report.cost_basis }}</p>
-  <p><a href="?period={{ report.period }}&amp;format=csv">Download CSV with provenance</a></p>
-  <div style="overflow-x:auto"><table border="1" cellpadding="7" style="border-collapse:collapse;min-width:100%;text-align:left;">
-    <thead><tr>{% for column in report.columns %}<th>{{ column.label }}</th>{% endfor %}</tr></thead>
-    <tbody>{% for cells in display_rows %}<tr>{% for cell in cells %}<td data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{{ cell.text }}</td>{% endfor %}</tr>{% endfor %}</tbody>
-  </table></div>
-  {% for note in report.notes %}<p>{{ note }}</p>{% endfor %}
-</main>
+<a class="back-link" href="{% url 'report-index' %}?period={{ report.period }}"><span aria-hidden="true">←</span> All reports</a>
+<div class="page-heading report-heading"><div><p class="eyebrow">REPORT DETAIL</p><h1>{{ report.title }}</h1><p class="page-intro">Review the available evidence for the selected month. Each cell retains its dataset, basis and source period.</p></div><a class="button button-primary" href="?period={{ report.period }}&amp;format=csv">Download CSV <span aria-hidden="true">↓</span></a></div>
+<div class="report-meta" aria-label="Report provenance"><div><span>Source period</span><strong>{{ report.period }}</strong></div><div><span>Dataset</span><strong>{{ report.dataset_kind }}</strong></div><div><span>Overall cost basis</span><strong class="basis-text basis-{{ report.cost_basis }}">{{ report.cost_basis|upper }}</strong></div><div><span>Visible rows</span><strong id="row-count">{{ row_count }}</strong></div></div>
+<div class="table-panel">
+  <div class="table-toolbar"><div><h2>Report detail</h2><p>Figures in TWD unless another unit is shown.</p></div><label class="table-search-label" for="report-search"><span class="sr-only">Search report rows</span><input id="report-search" type="search" placeholder="Find a row…" autocomplete="off"></label></div>
+  <div class="table-scroll" role="region" aria-label="{{ report.title }} table" tabindex="0"><table class="data-table"><thead><tr>{% for column in report.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody id="report-body">{% for cells in display_rows %}<tr>{% for cell in cells %}<td class="{% if cell.figure %}figure-cell basis-{{ cell.basis }}{% endif %}" data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{% if cell.figure %}<span class="figure-value">{{ cell.text }}</span>{% if cell.label %}<span class="cell-basis">{{ cell.label }}</span>{% endif %}{% if cell.reason %}<span class="cell-reason">{{ cell.reason }}</span>{% endif %}{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+  <p id="no-matches" class="table-no-matches" hidden>No rows match your search.</p>
+</div>
+{% if report.notes %}<section class="notes-panel" aria-labelledby="notes-heading"><div><p class="eyebrow">READ BEFORE USING</p><h2 id="notes-heading">Interpretation notes</h2></div><ul>{% for note in report.notes %}<li>{{ note }}</li>{% endfor %}</ul></section>{% endif %}
+<script>
+  (() => {
+    const input = document.getElementById('report-search');
+    const rows = Array.from(document.querySelectorAll('#report-body tr'));
+    const counter = document.getElementById('row-count');
+    const empty = document.getElementById('no-matches');
+    input.addEventListener('input', () => {
+      const query = input.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      rows.forEach((row) => {
+        const show = row.textContent.toLocaleLowerCase().includes(query);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      counter.textContent = String(visible);
+      empty.hidden = visible !== 0;
+    });
+  })();
+</script>
 {% endblock %}

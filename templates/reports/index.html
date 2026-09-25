@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Reports — Tattoo Ledger{% endblock %}
+{% block title %}Reports · Little Spell Ledger{% endblock %}
+{% block section_label %}Reports{% endblock %}
 {% block content %}
-<main style="font-family:system-ui,sans-serif;max-width:72rem;margin:2rem auto;padding:0 1rem;">
-  <h1>Reports</h1>
-  <form method="get"><label>Source period <input name="period" value="{{ period }}" pattern="[0-9]{4}-[0-9]{2}" required></label> <button type="submit">Show</button></form>
-  <ul>
-  {% for slug, builder in reports.items %}<li><a href="{% url 'report-detail' slug %}?period={{ period }}">{{ slug }}</a></li>{% endfor %}
-  </ul>
-  <p>All figures show their source basis. ABSENT means an input has not been evidenced.</p>
-</main>
+<div class="page-heading"><div><p class="eyebrow">REPORT LIBRARY</p><h1>Reports</h1><p class="page-intro">Start with the question you need to answer. Each view keeps missing evidence and cost basis visible.</p></div></div>
+<form class="period-toolbar" method="get" aria-label="Report period"><div><label for="report-period">Reporting month</label><p>Choose the source month to open in each report.</p></div><div class="period-controls"><input id="report-period" type="month" name="period" value="{{ period }}" pattern="[0-9]{4}-[0-9]{2}" required><button class="button button-primary" type="submit">Use period <span aria-hidden="true">→</span></button></div></form>
+<div class="notice notice-info" role="note"><span class="notice-symbol" aria-hidden="true">i</span><div><strong>How to read these reports</strong><p>ABSENT means an input is missing. PROVISIONAL names a cost that is not actual. A passing empty-data check does not certify a business period.</p></div></div>
+{% for group in groups %}
+<section class="report-group" id="{{ group.id }}" aria-labelledby="{{ group.id }}-heading"><div class="section-heading"><div><p class="eyebrow">0{{ forloop.counter }} / REPORTS</p><h2 id="{{ group.id }}-heading">{{ group.title }}</h2><p>{{ group.description }}</p></div><span class="section-caption">{{ group.items|length }} views</span></div>
+  <div class="report-grid">{% for slug, title, description in group.items %}<a class="report-card" href="{% url 'report-detail' slug %}?period={{ period }}"><span class="report-card-top"><span class="report-card-code">{{ forloop.counter|stringformat:"02d" }}</span><span class="report-card-arrow" aria-hidden="true">↗</span></span><strong>{{ title }}</strong><span class="report-card-description">{{ description }}</span><span class="report-card-link">Open report <span aria-hidden="true">→</span></span></a>{% endfor %}</div>
+</section>
+{% endfor %}
 {% endblock %}

@@ -1,13 +1,55 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Tattoo Ledger{% endblock %}</title>
+  <meta name="theme-color" content="#10213b">
+  <title>{% block title %}Little Spell Ledger{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body>
-  {# Seed quarantine, DATA_REVIEW addendum §A1.3 — rendered on EVERY page while SAMPLE. #}
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  {# This quarantine banner must remain on every page while SAMPLE. #}
   {% include "includes/dataset_banner.html" %}
-  {% block content %}{% endblock %}
+  <div class="app-layout">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="{% url 'home' %}" aria-label="Little Spell Ledger home">
+        <span class="brand-mark" aria-hidden="true">LS</span>
+        <span class="brand-copy"><strong>Little Spell</strong><small>Ledger workspace</small></span>
+      </a>
+      <nav class="side-nav" aria-label="Workspace">
+        <p class="nav-group-label">Workspace</p>
+        <a class="nav-link {% if request.resolver_match.url_name == 'home' %}is-active{% endif %}" href="{% url 'home' %}" {% if request.resolver_match.url_name == 'home' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">⌂</span>Overview</a>
+        <a class="nav-link {% if request.resolver_match.url_name == 'report-index' or request.resolver_match.url_name == 'report-detail' %}is-active{% endif %}" href="{% url 'report-index' %}" {% if request.resolver_match.url_name == 'report-index' or request.resolver_match.url_name == 'report-detail' %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">▤</span>Reports</a>
+        <p class="nav-group-label nav-group-gap">Explore reports</p>
+        <a class="nav-link nav-sub" href="{% url 'report-index' %}#performance">Performance</a>
+        <a class="nav-link nav-sub" href="{% url 'report-index' %}#accounting">Accounting</a>
+        <a class="nav-link nav-sub" href="{% url 'report-index' %}#reconciliation">Reconciliation</a>
+        {% if request.user.is_staff %}
+        <p class="nav-group-label nav-group-gap">System</p>
+        <a class="nav-link" href="{% url 'admin:index' %}"><span class="nav-icon" aria-hidden="true">⚙</span>Administration</a>
+        {% endif %}
+      </nav>
+      <div class="sidebar-foot"><span class="status-dot" aria-hidden="true"></span><span>Internal workspace<br><small>Asia / Taipei · TWD</small></span></div>
+    </aside>
+    <div class="app-stage">
+      <header class="topbar">
+        <div class="topbar-leading">
+          <details class="mobile-menu"><summary aria-label="Open navigation">☰ <span>Menu</span></summary>
+            <nav aria-label="Mobile navigation"><a href="{% url 'home' %}">Overview</a><a href="{% url 'report-index' %}">Reports</a>{% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Administration</a>{% endif %}</nav>
+          </details>
+          <span class="topbar-location">Little Spell <span aria-hidden="true">/</span> {% block section_label %}Overview{% endblock %}</span>
+        </div>
+        <div class="topbar-trailing">
+          <span class="topbar-timezone">TWD · Asia/Taipei</span>
+          {% if request.user.is_authenticated %}<span class="user-chip" title="Signed-in account">{{ request.user.get_username|first|upper }}</span>{% else %}<a class="topbar-signin" href="{% url 'admin:login' %}">Sign in <span aria-hidden="true">↗</span></a>{% endif %}
+        </div>
+      </header>
+      <main id="main-content" class="page-content" tabindex="-1">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
 </body>
 </html>

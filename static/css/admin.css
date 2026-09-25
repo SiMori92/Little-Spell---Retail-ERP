@@ -1,0 +1,29 @@
+:root{--primary:#142b49;--secondary:#1d3b61;--accent:#78b9ff;--primary-fg:#fff;--body-bg:#f5f7fb;--body-fg:#253a56;--header-bg:#142b49;--header-color:#fff;--breadcrumbs-bg:#e9f0f9;--breadcrumbs-fg:#315173;--link-fg:#3265c7;--link-hover-color:#214c9d;--selected-bg:#edf3ff;--selected-row:#f2f6ff;--hairline-color:#e1e8f1;--border-color:#dce5f0;--message-success-bg:#eaf8f5;--message-warning-bg:#fff4e1;--message-error-bg:#fff0ee}
+html{scroll-behavior:smooth}
+body{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#header{min-height:64px;padding:12px 24px;box-shadow:0 8px 22px rgba(17,38,66,.09)}
+#site-name{font-size:15px!important;letter-spacing:.01em;font-weight:800;display:flex;align-items:center;margin:0}
+#site-name a{display:flex;align-items:center;gap:10px;color:#fff!important}
+.admin-brand-mark{height:33px;width:33px;display:inline-grid;place-items:center;border-radius:9px;background:linear-gradient(135deg,#78b9ff,#4675d7);font-size:11px;letter-spacing:-.05em}
+.admin-brand-sub{font-size:11px;font-weight:500;color:#a7c0de;letter-spacing:.02em}
+#user-tools{display:flex;align-items:center;gap:9px;font-size:11px;letter-spacing:0;text-transform:none}
+.admin-workspace-link{display:inline-flex;align-items:center;padding:6px 9px;border-radius:6px;background:rgba(255,255,255,.11);font-weight:700;color:#e8f1ff!important}
+.admin-workspace-link:hover{background:rgba(255,255,255,.2)}
+div.breadcrumbs{padding:12px 27px;border-bottom:1px solid #d5e2f0;font-weight:700}
+#content{padding:26px 28px;max-width:1600px}
+#content h1{font-size:27px;letter-spacing:-.04em;color:#19304e;margin-bottom:20px}
+.module{border:1px solid #e0e8f1;border-radius:9px;overflow:hidden;background:#fff;box-shadow:0 9px 27px rgba(22,43,72,.045)}
+.module h2,.module caption,.inline-group h2{background:#edf3fb;color:#233e60;padding:12px 15px;font-size:12px;font-weight:800;letter-spacing:.04em}
+.module table th,.module table td{padding:11px 13px;border-color:#edf1f6}
+.module table tr:hover{background:#f7faff}
+.object-tools a,.submit-row input.default,.button.default{background:#3265c7!important;border-radius:7px!important;border:0!important;box-shadow:none!important;font-weight:700}
+.object-tools a:hover,.submit-row input.default:hover{background:#2152ad!important}
+input[type=text],input[type=password],input[type=email],input[type=number],select,textarea{border:1px solid #cbd8e7;border-radius:6px;padding:8px 10px;background:#fff;color:#253a56}
+.form-row{border-bottom:1px solid #edf1f6}
+#nav-sidebar{background:#f7f9fc;border-right:1px solid #e2e9f2}
+#nav-sidebar .current-model{background:#e8f0ff}
+#nav-sidebar a{color:#405b7a;font-weight:600}
+#nav-sidebar .module th,#nav-sidebar .module td{padding:8px 12px}
+.paginator{font-size:12px}
+.messagelist li{border-radius:7px;margin:0 0 14px}
+@media(max-width:800px){#header{padding:10px 15px}#content{padding:20px 15px}.admin-brand-sub{display:none}#user-tools{flex-wrap:wrap;justify-content:flex-end}.admin-workspace-link{padding:4px 7px}}

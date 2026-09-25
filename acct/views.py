@@ -13,6 +13,24 @@ from acct.reconciliation import RECONCILIATION_BUILDERS
 
 ALL_REPORT_BUILDERS = {**REPORT_BUILDERS, **RECONCILIATION_BUILDERS}
 
+REPORT_GROUPS = (
+    {"id": "performance", "title": "Performance", "description": "See how each order, product and channel contributes.", "items": (
+        ("contribution-orders", "Contribution by order", "Trace revenue, fees, fulfilment and COGS for each dispatch."),
+        ("contribution-skus", "Contribution by SKU", "Find the strongest product only when every cost is evidenced."),
+        ("contribution-channels", "Contribution by channel", "Compare sales channels against the NT$200 per-order line."),
+        ("cac", "Customer acquisition cost", "Review recorded ad spend and attribution gaps."),
+    )},
+    {"id": "accounting", "title": "Accounting", "description": "Read the posted ledger and inventory position.", "items": (
+        ("profit-loss", "Profit and loss", "Period revenue and expense lines from posted entries."),
+        ("balance-sheet", "Balance sheet", "Cumulative account balances through the selected month."),
+        ("inventory", "Inventory roll-forward", "Opening, movement, closing and GL value by SKU."),
+    )},
+    {"id": "reconciliation", "title": "Reconciliation", "description": "Find open clearing and freight differences.", "items": (
+        ("settlement-aging", "Settlement aging", "Open rail items, business-day age and named causes."),
+        ("carrier-reconciliation", "Carrier invoices", "Compare accruals, invoices and remaining 2191."),
+    )},
+)
+
 
 def _period(request):
     period = request.GET.get("period") or timezone.localtime(timezone.now(), ZoneInfo("Asia/Taipei")).strftime("%Y-%m")
@@ -63,7 +81,7 @@ def report_index(request):
         period = _period(request)
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
-    return render(request, "reports/index.html", {"period": period, "reports": ALL_REPORT_BUILDERS})
+    return render(request, "reports/index.html", {"period": period, "groups": REPORT_GROUPS})
 
 
 @login_required
@@ -86,10 +104,22 @@ def report_detail(request, slug):
             if column.figure:
                 if not isinstance(value, Figure):
                     raise ValueError(f"figure column {column.key} lacks provenance")
-                cells.append({"text": value.display(), "kind": value.dataset_kind,
+                if value.amount is None:
+                    amount_text = "ABSENT"
+                elif value.unit == "TWD":
+                    amount_text = f"NT${value.amount:,.2f}"
+                else:
+                    amount_text = f"{value.amount:,.0f} {value.unit}"
+                basis_label = ("PROVISIONAL COST BASIS — NOT ACTUAL" + (" [ESTIMATE]" if value.estimate else "")
+                               if value.cost_basis == "provisional" else
+                               "ABSENT" if value.cost_basis == "absent" else "")
+                cells.append({"text": amount_text, "figure": True, "label": basis_label,
+                              "reason": value.reason, "kind": value.dataset_kind,
                               "basis": value.cost_basis, "period": value.source_period,
                               "unit": value.unit})
             else:
-                cells.append({"text": str(value), "kind": "", "basis": "", "period": "", "unit": ""})
+                cells.append({"text": str(value), "figure": False, "label": "", "reason": "",
+                              "kind": "", "basis": "", "period": "", "unit": ""})
         display_rows.append(cells)
-    return render(request, "reports/report.html", {"report": report, "display_rows": display_rows})
+    return render(request, "reports/report.html", {"report": report, "display_rows": display_rows,
+                                                   "row_count": len(display_rows)})
