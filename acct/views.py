@@ -9,6 +9,9 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from acct.reporting import Figure, REPORT_BUILDERS, period_bounds
+from acct.reconciliation import RECONCILIATION_BUILDERS
+
+ALL_REPORT_BUILDERS = {**REPORT_BUILDERS, **RECONCILIATION_BUILDERS}
 
 
 def _period(request):
@@ -60,12 +63,12 @@ def report_index(request):
         period = _period(request)
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
-    return render(request, "reports/index.html", {"period": period, "reports": REPORT_BUILDERS})
+    return render(request, "reports/index.html", {"period": period, "reports": ALL_REPORT_BUILDERS})
 
 
 @login_required
 def report_detail(request, slug):
-    builder = REPORT_BUILDERS.get(slug)
+    builder = ALL_REPORT_BUILDERS.get(slug)
     if builder is None:
         raise Http404("unknown report")
     try:

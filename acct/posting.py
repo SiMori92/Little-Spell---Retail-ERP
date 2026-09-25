@@ -50,6 +50,7 @@ class Leg:
     txn_currency: str | None = None
     fx_rate: FxRate | None = None
     sku: str | None = None
+    qty_delta_packs: Decimal | None = None
 
 
 def dr(code, value, **kwargs):
@@ -190,7 +191,7 @@ def cogs(e, reprint=False):
         if sum(onhand) < 0:
             raise PostingError(f"SKU {sku} on-hand would be negative")
         value = money(Decimal(qty) * position.value_twd / position.qty_packs)
-        lines += [dr("5111", value, sku=sku), cr("1231", value, sku=sku)]
+        lines += [dr("5111", value, sku=sku), cr("1231", value, sku=sku, qty_delta_packs=-Decimal(qty))]
     packaging = e.payload.get("packaging_twd")
     if packaging:
         lines += pair("5114", "1233", packaging)
@@ -316,7 +317,8 @@ def po_received(e):
         raise PostingError("SKU landed cost does not tie to product inventory debit")
     if any(money(required(row, "qty_packs")) <= 0 or not row.get("sku") for row in receipts):
         raise PostingError("PO receipt needs positive SKU quantities")
-    lines = [dr("1231", row["landed_cost_twd"], sku=row["sku"]) for row in receipts]
+    lines = [dr("1231", row["landed_cost_twd"], sku=row["sku"],
+                qty_delta_packs=money(row["qty_packs"])) for row in receipts]
     lines += [dr("1233", c["packaging"]), cr("2171", c["supplier"]), cr("2172", c["freight"]), cr("2192", c["duty"]), cr("1232", c["in_transit"])]
     return [x for x in lines if x.debit or x.credit]
 
@@ -345,7 +347,8 @@ def inventory_adjusted(e):
     if position is None or position.qty_packs < qty or position.qty_packs <= 0:
         raise PostingError("inventory adjustment lacks sufficient SKU WAC stock")
     value = money(position.value_twd * qty / position.qty_packs)
-    return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"])]
+    return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value,
+            sku=e.payload["sku"], qty_delta_packs=-qty)]
 
 
 def opening_counted(e):
@@ -353,7 +356,8 @@ def opening_counted(e):
         raise PostingError("opening count fires once per dataset")
     required(e.payload, "sku")
     value = money(money(required(e.payload, "qty")) * money(required(e.payload, "agreed_unit_cost_twd")))
-    return [dr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"]), cr(e.payload.get("capital_account", "3111"), value)]
+    return [dr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"],
+               qty_delta_packs=money(e.payload["qty"])), cr(e.payload.get("capital_account", "3111"), value)]
 
 
 def cost_recorded(e):
@@ -521,8 +525,13 @@ def post_event(event):
         account = Account.objects.get(pk=item.account)
         if account.is_reserved:
             raise PostingError(f"account {item.account} is RESERVED")
+        estimated = (event.payload.get("basis") == "estimate" if isinstance(event, LedgerEvent)
+                     else event.basis == "estimate")
+        basis_note = event.payload.get("basis_note", "") if estimated else ""
+        line_memo = f"[ESTIMATE] basis: {basis_note}" if estimated else ""
         JournalLine.objects.create(entry=entry, account=account, debit=item.debit, credit=item.credit,
-            txn_amount=item.txn_amount, txn_currency=item.txn_currency, fx_rate=item.fx_rate, sku=item.sku)
+            txn_amount=item.txn_amount, txn_currency=item.txn_currency, fx_rate=item.fx_rate, sku=item.sku,
+            qty_delta_packs=item.qty_delta_packs, source_ref=source_ref, memo=line_memo[:255])
     if lines:
         apply_wac(event, lines)
     if source_kind == "ops":

@@ -98,6 +98,8 @@ class JournalLine(models.Model):
     entry = models.ForeignKey(JournalEntry, related_name="lines", on_delete=models.PROTECT)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
     sku = models.CharField(max_length=20, null=True, blank=True, db_index=True)
+    qty_delta_packs = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    source_ref = models.CharField(max_length=255, null=True, blank=True)
     debit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     credit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     txn_amount = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
@@ -138,3 +140,35 @@ class AcctManualEntry(models.Model):
             models.CheckConstraint(condition=~Q(event_type="owner.funds_moved") | Q(payload__funds_type__in=["capital", "drawings", "loan"]), name="acct_manual_funds_type"),
             models.CheckConstraint(condition=~Q(basis="estimate") | Q(payload__has_key="basis_note"), name="acct_manual_estimate_basis"),
         ]
+
+
+class ClearingCause(models.Model):
+    """Named explanation for a still-open clearing debit; never changes the journal."""
+
+    line = models.OneToOneField(JournalLine, on_delete=models.PROTECT)
+    cause = models.CharField(max_length=255)
+    evidence_ref = models.CharField(max_length=255)
+    recorded_by = models.CharField(max_length=120)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+
+class CloseRun(models.Model):
+    period = models.CharField(max_length=7)
+    dataset_kind = models.CharField(max_length=6, choices=DatasetKind.choices)
+    runner = models.CharField(max_length=120)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField()
+    elapsed_seconds = models.DecimalField(max_digits=12, decimal_places=4)
+    status = models.CharField(max_length=12)
+    gate_results = models.JSONField(default=list)
+    remaining_open = models.JSONField(default=list)
+    signature = models.CharField(max_length=64)
+
+
+class CloseAudit(models.Model):
+    period = models.CharField(max_length=7)
+    action = models.CharField(max_length=12)
+    actor = models.CharField(max_length=120)
+    reason = models.TextField()
+    close_run = models.ForeignKey(CloseRun, null=True, on_delete=models.PROTECT)
+    recorded_at = models.DateTimeField(auto_now_add=True)

@@ -101,7 +101,7 @@ class DatabaseRolesTests(TransactionTestCase):
                 "SELECT count(*) FROM pg_tables "
                 "WHERE schemaname = 'public' AND tablename LIKE 'acct\\_%'"
             )
-            self.assertEqual(cursor.fetchone()[0], 7)
+            self.assertEqual(cursor.fetchone()[0], 10)
 
     def test_reapplying_grants_does_not_restore_journal_update(self):
         call_command("apply_table_grants", verbosity=0)
@@ -131,5 +131,6 @@ class SliceZeroBoundaryTests(TransactionTestCase):
                          "InventoryMove", "LedgerEvent"} <= ops_names)
         self.assertEqual(
             {m.__name__ for m in apps.get_app_config("acct").get_models()},
-            {"Account", "FxRate", "Period", "JournalEntry", "JournalLine", "AcctManualEntry", "WacPosition"},
+            {"Account", "FxRate", "Period", "JournalEntry", "JournalLine", "AcctManualEntry", "WacPosition",
+             "ClearingCause", "CloseRun", "CloseAudit"},
         )
