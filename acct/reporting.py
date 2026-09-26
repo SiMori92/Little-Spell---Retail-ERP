@@ -546,17 +546,19 @@ def inventory_roll_forward(period):
     rows = []
     product_ids = set(Product.objects.values_list("sku", flat=True))
     for sku in sorted(product_ids):
-        count = LedgerEvent.objects.filter(event_type="inventory.opening_counted", dataset_kind=kind, occurred_at__lte=start,
-            posted_entry_id__isnull=False, payload__sku=sku).order_by("-occurred_at").first()
+        counts = LedgerEvent.objects.filter(event_type="inventory.opening_counted", dataset_kind=kind, occurred_at__lte=start,
+            posted_entry_id__isnull=False).order_by("-occurred_at")
+        count = next(((event, row) for event in counts for row in event.payload.get("lines", [])
+                      if row.get("sku") == sku), None)
         opening_moves = list(InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, kind="opening",
                                                           occurred_at__lte=start).order_by("occurred_at"))
         if count is None or len(opening_moves) != 1:
             opening = absent(period, kind, "no posted opening inventory count", unit="packs")
             opening_value = absent(period, kind, "no sourced opening inventory value")
         else:
-            count_qty = Decimal(str(count.payload.get("qty", "0")))
+            count_qty = Decimal(str(count[1]["qty_packs"]))
             opening_move = opening_moves[0]
-            later = InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, occurred_at__gt=count.occurred_at,
+            later = InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, occurred_at__gt=count[0].occurred_at,
                                                   occurred_at__lt=start).exclude(kind="opening")
             later = list(later)
             if opening_move.qty_delta_packs != count_qty:

@@ -109,7 +109,15 @@ class JournalLine(models.Model):
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(debit__gte=0, credit__gte=0) & (Q(debit__gt=0, credit=0) | Q(credit__gt=0, debit=0)), name="acct_line_one_side"),
+            models.CheckConstraint(
+                condition=Q(debit__gte=0, credit__gte=0) & (
+                    Q(debit__gt=0, credit=0) | Q(credit__gt=0, debit=0) |
+                    (Q(debit=0, credit=0, source_ref__startswith="ops:opening-count|") &
+                     ((Q(account_id="1231", sku__isnull=False, qty_delta_packs=0)) |
+                      Q(account_id="3111", sku__isnull=False, qty_delta_packs__isnull=True)))
+                ),
+                name="acct_line_one_side",
+            ),
             models.CheckConstraint(condition=Q(txn_currency__isnull=True) | Q(txn_currency="TWD") | (Q(txn_amount__isnull=False) & Q(fx_rate__isnull=False)), name="acct_line_fx_triple"),
         ]
 

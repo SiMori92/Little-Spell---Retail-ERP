@@ -101,7 +101,7 @@ class G3Tests(TestCase):
         count, _ = entry("g3-count", opening_at, "2025-02", legs=[
             leg("1231", debit=50, sku="G3-SKU", qty=Decimal(5)), leg("3111", credit=50)])
         LedgerEvent.objects.create(event_type="inventory.opening_counted", entity_table="ops.product",
-            entity_id=1, occurred_at=opening_at, payload={"sku":"G3-SKU","qty":"5"},
+            entity_id=1, occurred_at=opening_at, payload={"counted_at":"2025-02-28","evidence_ref":"synthetic-count","lines":[{"sku":"G3-SKU","qty_packs":"5","agreed_unit_cost_twd":"10","line_value_twd":"50","condition":"sellable"}],"total_value_twd":"50"},
             idempotency_key="g3-count", posted_entry_id=count.pk,
             source_filename="synthetic", dataset_kind="SAMPLE")
         InventoryMove.objects.create(product=self.product, kind="opening", qty_delta_packs=5,

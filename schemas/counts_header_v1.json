@@ -1,0 +1,8 @@
+{
+  "kind": "counts",
+  "verified": false,
+  "header": ["counted_at", "evidence_ref", "sku", "qty_packs", "agreed_unit_cost_twd", "condition"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_count_2025-03-27.csv",
+  "actual_filename_pattern": "count_YYYY-MM-DD.csv"
+}

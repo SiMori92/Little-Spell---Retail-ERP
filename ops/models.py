@@ -105,9 +105,9 @@ class InventoryMove(Provenance):
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=~Q(qty_delta_packs=0), name="ops_move_nonzero"),
-            models.CheckConstraint(condition=(Q(kind__in=["opening", "received", "returned"], qty_delta_packs__gt=0) | Q(kind__in=["sold", "written_off"], qty_delta_packs__lt=0) | (Q(kind="adjusted") & ~Q(qty_delta_packs=0))), name="ops_move_sign_discipline"),
-            models.CheckConstraint(condition=Q(value_delta_twd__isnull=True) | (Q(qty_delta_packs__gt=0, value_delta_twd__gt=0) | Q(qty_delta_packs__lt=0, value_delta_twd__lt=0)), name="ops_move_value_sign"),
+            models.CheckConstraint(condition=~Q(qty_delta_packs=0) | Q(kind="opening", value_delta_twd=0), name="ops_move_nonzero"),
+            models.CheckConstraint(condition=(Q(kind="opening", qty_delta_packs__gte=0) | Q(kind__in=["received", "returned"], qty_delta_packs__gt=0) | Q(kind__in=["sold", "written_off"], qty_delta_packs__lt=0) | Q(kind="adjusted", qty_delta_packs__lt=0)), name="ops_move_sign_discipline"),
+            models.CheckConstraint(condition=Q(value_delta_twd__isnull=True) | (Q(qty_delta_packs__gt=0, value_delta_twd__gte=0) | Q(qty_delta_packs__lt=0, value_delta_twd__lte=0) | Q(kind="opening", qty_delta_packs=0, value_delta_twd=0)), name="ops_move_value_sign"),
         ]
 
 
@@ -163,6 +163,58 @@ class EtsyStatementRow(Provenance):
 
     class Meta:
         constraints = [models.CheckConstraint(condition=(Q(amount_minor__isnull=True, fee_minor__isnull=False) | Q(amount_minor__isnull=False, fee_minor__isnull=True)), name="ops_stmt_one_money_column")]
+
+
+class Receipt(Provenance):
+    """One evidenced TWD receipt; its evidence reference is the natural key."""
+
+    occurred_on = models.DateField()
+    category = models.CharField(max_length=32)
+    amount_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    settled_via = models.CharField(max_length=8)
+    evidence_ref = models.CharField(max_length=255)
+    description = models.CharField(max_length=255)
+    channel_attribution = models.CharField(max_length=16, blank=True, default="")
+    bank_account = models.CharField(max_length=4, blank=True, default="")
+    idempotency_key = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "evidence_ref"], name="ops_receipt_evidence_key"),
+            models.CheckConstraint(condition=Q(amount_twd__gt=0), name="ops_receipt_positive_amount"),
+        ]
+
+
+class StockCount(Provenance):
+    """One physical count session, documented by one evidence reference."""
+
+    counted_at = models.DateField()
+    evidence_ref = models.CharField(max_length=255)
+    kind = models.CharField(max_length=10, choices=[("opening", "Opening"), ("adjustment", "Adjustment")])
+    total_value_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    idempotency_key = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "evidence_ref"], name="ops_count_evidence_key"),
+        ]
+
+
+class StockCountLine(Provenance):
+    count = models.ForeignKey(StockCount, related_name="lines", on_delete=models.PROTECT)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    qty_packs = models.PositiveIntegerField()
+    agreed_unit_cost_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    line_value_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    condition = models.CharField(max_length=20, choices=[("sellable", "Sellable"),
+                                                          ("damaged_unsellable", "Damaged, unsellable")])
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["count", "product"], name="ops_count_one_line_per_sku"),
+            models.CheckConstraint(condition=Q(agreed_unit_cost_twd__gte=0, line_value_twd__gte=0),
+                                   name="ops_count_nonnegative_value"),
+        ]
 
 
 class OpsPeriod(models.Model):

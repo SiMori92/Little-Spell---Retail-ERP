@@ -15,12 +15,9 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 
 from core.models import DatasetSettings
+from ops.intake import ImportRefused, IntakeManifest, classify_filename, read_csv
 from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, InventoryMove,
                         LedgerEvent, OnHand, OPS_EVENT_TYPES, Order, OrderLine, Product, Shipment)
-
-
-class ImportRefused(ValueError):
-    """A source cannot safely cross the import boundary."""
 
 
 _ACTUAL_NAME = re.compile(r"etsy_(?:orderitems|statement)_\d{4}-(?:0[1-9]|1[0-2])\.csv\Z")
@@ -52,25 +49,22 @@ def load_schema(kind: str) -> dict:
     return json.loads((_SCHEMAS / f"etsy_{kind}_header_v1.json").read_text())
 
 
-def _read_csv(path: Path, kind: str) -> list[dict]:
+def etsy_manifest(kind: str) -> IntakeManifest:
     fixture = load_schema(kind)
-    try:
-        with path.open(newline="", encoding="utf-8-sig") as stream:
-            reader = csv.DictReader(stream)
-            if reader.fieldnames != fixture["header"]:
-                observed = reader.fieldnames or []
-                missing = sorted(set(fixture["header"]) - set(observed))
-                added = sorted(set(observed) - set(fixture["header"]))
-                raise ImportRefused(
-                    f"Header mismatch in {path.name}; expected {kind} v1 exact columns; "
-                    f"missing={missing}; added={added}; order_changed={not missing and not added}"
-                )
-            rows = list(reader)
-    except (UnicodeError, csv.Error) as exc:
-        raise ImportRefused(f"Cannot parse UTF-8 CSV {path.name}: {type(exc).__name__}") from exc
-    if any(None in row or any(value is None for value in row.values()) for row in rows):
-        raise ImportRefused(f"Wrong CSV column count in {path.name}")
-    return rows
+    return IntakeManifest(
+        kind=kind, header=tuple(fixture["header"]), optional_columns=(),
+        verified=fixture["verified"], actual_filename=_ACTUAL_NAME,
+        target_models=("Order", "OrderLine", "Shipment", "InventoryMove") if kind == "orderitems"
+                      else ("EtsyStatementPeriod", "EtsyStatementRow"),
+        events=("order.placed", "order.shipped", "order.cogs_relieved") if kind == "orderitems"
+               else ("order.fees_assessed", "cost.recorded", "settlement.received"),
+        natural_key="Etsy order ID / transaction ID" if kind == "orderitems"
+                    else "period + canonical statement row hash + duplicate occurrence",
+    )
+
+
+def _read_csv(path: Path, kind: str) -> list[dict]:
+    return read_csv(path, etsy_manifest(kind))
 
 
 def _minor(raw: str, *, nullable: bool = False) -> int | None:
@@ -331,6 +325,15 @@ def emit_event(*, event_type: str, entity_table: str, entity_id: int, occurred_a
         raise ImportRefused("Advertising requires channel_attribution")
     if event_type in {"order.cancelled", "order.refunded", "settlement.reversed"} and not payload.get("evidence_ref"):
         raise ImportRefused(f"{event_type} requires evidence_ref")
+    if event_type == "inventory.opening_counted":
+        from acct.posting import PostingError, opening_counted
+        candidate = LedgerEvent(event_type=event_type, entity_table=entity_table, entity_id=entity_id,
+            occurred_at=occurred_at, payload=payload, idempotency_key=idempotency_key,
+            source_filename=source_filename, dataset_kind=dataset_kind)
+        try:
+            opening_counted(candidate)
+        except PostingError as exc:
+            raise ImportRefused(str(exc)) from exc
     if amount_minor is not None and amount_minor < 0:
         raise ImportRefused(f"{event_type} amount must be nonnegative")
     obj, created = LedgerEvent.objects.get_or_create(
@@ -360,7 +363,7 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
     if _period(order_path) != _period(statement_path):
         raise ImportRefused("Order and statement filename periods disagree")
     for kind in ("orderitems", "statement"):
-        if commit and not load_schema(kind)["verified"]:
+        if commit and not etsy_manifest(kind).verified:
             raise ImportRefused(f"Cannot --commit: {kind} schema fixture is unverified")
     result = ImportResult()
     order_rows = _read_csv(order_path, "orderitems")
@@ -521,15 +524,8 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
 
 def quarantine_file(filename: str, application_dataset_kind: str) -> str:
     """Return the filename-derived kind, or refuse before opening the file."""
-    name = Path(filename).name
-    if name.startswith("SAMPLE_") and name.endswith(".csv") and len(name) > len("SAMPLE_.csv"):
-        file_kind = "SAMPLE"
-    elif _ACTUAL_NAME.fullmatch(name):
-        file_kind = "ACTUAL"
-    else:
-        raise ImportRefused(f"Unclassified Etsy filename: {name}")
-    if file_kind != application_dataset_kind:
-        raise ImportRefused(
-            f"Filename {name} is {file_kind}; application dataset_kind is {application_dataset_kind}"
-        )
-    return file_kind
+    try:
+        return classify_filename(Path(filename), application_dataset_kind, etsy_manifest("orderitems"))
+    except ImportRefused as exc:
+        # Preserve Slice A's public diagnostic while using the shared classifier.
+        raise ImportRefused(str(exc).replace("Unclassified orderitems filename", "Unclassified Etsy filename")) from exc

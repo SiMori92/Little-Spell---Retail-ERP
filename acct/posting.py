@@ -1,4 +1,5 @@
-"""Frozen v1.3 event catalogue binding. No catch-all or guessed amounts."""
+"""Frozen v1.4 event catalogue binding. No catch-all or guessed amounts."""
+from datetime import date
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from functools import partial
@@ -354,10 +355,40 @@ def inventory_adjusted(e):
 def opening_counted(e):
     if LedgerEvent.objects.filter(event_type="inventory.opening_counted", dataset_kind=e.dataset_kind).exclude(pk=e.pk).exists():
         raise PostingError("opening count fires once per dataset")
-    required(e.payload, "sku")
-    value = money(money(required(e.payload, "qty")) * money(required(e.payload, "agreed_unit_cost_twd")))
-    return [dr(e.payload.get("inventory_account", "1231"), value, sku=e.payload["sku"],
-               qty_delta_packs=money(e.payload["qty"])), cr(e.payload.get("capital_account", "3111"), value)]
+    payload = e.payload
+    try:
+        counted_at = date.fromisoformat(required(payload, "counted_at"))
+    except (TypeError, ValueError) as exc:
+        raise PostingError("opening count counted_at must be one ISO date") from exc
+    if e.occurred_at.astimezone(timezone.get_current_timezone()).date() != counted_at:
+        raise PostingError("opening count date disagrees with event date")
+    required(payload, "evidence_ref")
+    schedule = required(payload, "lines")
+    if not isinstance(schedule, list) or not schedule:
+        raise PostingError("opening count needs a nonempty SKU schedule")
+    seen = set()
+    lines = []
+    total = Decimal(0)
+    for row in schedule:
+        if not isinstance(row, dict) or not row.get("sku") or row["sku"] in seen:
+            raise PostingError("opening count needs unique, nonblank SKUs")
+        seen.add(row["sku"])
+        if row.get("condition") not in {"sellable", "damaged_unsellable"}:
+            raise PostingError(f"opening count {row['sku']} has invalid condition")
+        qty = money(required(row, "qty_packs"))
+        if qty != qty.to_integral_value():
+            raise PostingError(f"opening count {row['sku']} qty_packs must be whole packs")
+        unit = money(required(row, "agreed_unit_cost_twd"))
+        value = money(required(row, "line_value_twd"))
+        if value != money(qty * unit):
+            raise PostingError(f"opening count {row['sku']} line_value_twd disagrees with quantity and cost")
+        total += value
+        # The zero pair is evidence that this SKU was counted, not an omitted SKU.
+        lines += [dr("1231", value, sku=row["sku"], qty_delta_packs=qty),
+                  cr("3111", value, sku=row["sku"] if not value else None)]
+    if money(required(payload, "total_value_twd")) != money(total):
+        raise PostingError("opening count total_value_twd disagrees with sum of lines")
+    return lines
 
 
 def cost_recorded(e):
@@ -460,7 +491,7 @@ def plan(event):
         return None
     if not lines:
         raise PostingError("rule produced no journal lines")
-    if any(not x.debit and not x.credit for x in lines):
+    if any(not x.debit and not x.credit for x in lines) and event.event_type != "inventory.opening_counted":
         raise PostingError("zero journal line")
     if sum((x.debit - x.credit for x in lines), Decimal(0)) != 0:
         raise PostingError(f"rule {event.event_type} produced unbalanced TWD entry")
@@ -474,8 +505,8 @@ def apply_wac(event, lines):
     kind = event.event_type
     p = event.payload
     if kind in ("inventory.opening_counted", "po.received"):
-        rows = ([{"sku": p["sku"], "qty_packs": p["qty"], "landed_cost_twd": lines[0].debit}]
-                if kind == "inventory.opening_counted" else p["sku_receipts"])
+        rows = ([{"sku": row["sku"], "qty_packs": row["qty_packs"], "landed_cost_twd": row["line_value_twd"]}
+                 for row in p["lines"]] if kind == "inventory.opening_counted" else p["sku_receipts"])
         for row in rows:
             position, _ = WacPosition.objects.select_for_update().get_or_create(sku=row["sku"])
             position.qty_packs += money(row["qty_packs"])

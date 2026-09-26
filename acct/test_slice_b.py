@@ -51,7 +51,7 @@ class PostingRulesTests(TestCase):
             "po.landed_cost_adjusted": self.event("po.landed_cost_adjusted", payload={"onhand_ratio":"0.4","lot_ref":"L","sku":"TESTSKU"}),
             "po.paid": self.event("po.paid", payload={"bank_ref":"B"}),
             "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty":"2"}),
-            "inventory.opening_counted": self.event("inventory.opening_counted", payload={"sku":"TESTSKU","qty":"2","agreed_unit_cost_twd":"5"}),
+            "inventory.opening_counted": self.event("inventory.opening_counted", payload={"counted_at":"2025-03-27","evidence_ref":"synthetic-count","lines":[{"sku":"TESTSKU","qty_packs":"2","agreed_unit_cost_twd":"5","line_value_twd":"10","condition":"sellable"}],"total_value_twd":"10"}),
             "cost.recorded": self.event("cost.recorded", entity_table="ops.etsystatementrow", payload={"category":"platform_listing_fee","settled_via":"etsy_rail"}),
         }
         self.assertEqual(len(cases), 20)

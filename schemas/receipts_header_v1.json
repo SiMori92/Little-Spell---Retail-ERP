@@ -1,0 +1,8 @@
+{
+  "kind": "receipts",
+  "verified": false,
+  "header": ["occurred_on", "category", "amount_twd", "settled_via", "evidence_ref", "description"],
+  "optional_columns": ["channel_attribution", "bank_account"],
+  "sample_filename": "SAMPLE_receipts_2025-03.csv",
+  "actual_filename_pattern": "receipts_YYYY-MM.csv"
+}
