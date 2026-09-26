@@ -69,8 +69,8 @@ All ops and acct models are registered with `has_add_permission`, `has_change_pe
 
 ## Verification and limits
 
-The existing Slice A tests and new schedule, intake and admin tests run in GitHub Actions against PostgreSQL. Local `manage.py check`, compile and migration-drift checks passed. Local PostgreSQL was not running during this task, so the database-backed suite was verified in Actions rather than on this Mac.
+The existing Slice A tests and new schedule, intake and admin tests passed in [GitHub Actions run 36250665474](https://github.com/SiMori92/Little-Spell---Retail-ERP/actions/runs/36250665474) against PostgreSQL. Local `manage.py check`, compile and migration-drift checks passed. Local PostgreSQL was not running during this task, so the database-backed suite was verified in Actions rather than on this Mac.
 
 Synthetic SAMPLE tests cannot verify actual receipt header formats, photographic evidence quality, physical count completeness, damaged stock handling, founder-agreed costs, or real WAC timing. The product model has no active flag, so “every active product” is implemented as **every Product row**. The frozen catalogue records `damaged_unsellable` but has no separate availability account or stock class; a positive damaged count still contributes to the existing per-SKU on-hand view. That is a contract/operational gap for a founder ruling, not a guessed intake rule. No parent contract file was changed.
 
-**Elapsed hands-on build/review time:** 0.4 hours as of 2026-09-26 23:03 Hong Kong time; update at final verification.
+**Elapsed hands-on build/review time:** 0.5 hours, from 22:44 to 23:14 Hong Kong time on 2026-09-26.
