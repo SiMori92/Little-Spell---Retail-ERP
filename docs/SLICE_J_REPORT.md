@@ -47,8 +47,9 @@ natural key are refused.
 
 The existing database CHECKs still enforce catalogue membership, tax evidence,
 owner funds type, and a basis note key whenever `basis=estimate`. The command
-requires a **nonblank** basis note before reading the database. The CHECK only
-tests key presence, so the command is deliberately stricter. The append-only
+requires a **nonblank** basis note before the period lookup or row insert.
+Omission of `--basis-note` is refused by argparse before any database operation.
+The CHECK only tests key presence, so the command is deliberately stricter. The append-only
 trigger and explicit posting step remain in force. G-1 counts unposted manual
 rows; G-5 checks estimates and source evidence during close.
 

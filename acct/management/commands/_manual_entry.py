@@ -83,7 +83,7 @@ class ManualEntryCommand(BaseCommand):
         if occurred_on.strftime("%Y-%m") != period:
             raise CommandError(f"--occurred-on must fall inside period {period}")
 
-        # Command-specific input (including an empty basis note) fails before any DB read.
+        # Validate command-specific input before looking up the period or saving.
         fields = self.entry_fields(options)
 
         # Lock an existing period so close and create cannot cross in this transaction.

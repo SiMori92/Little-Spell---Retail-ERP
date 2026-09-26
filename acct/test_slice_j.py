@@ -116,11 +116,14 @@ class ManualEntryCommandTests(TestCase):
 
     def test_all_six_refuse_closed_period(self):
         original = self.posted_accrual()
-        Period.objects.create(period="2025-03", status="CLOSED")
+        # Keep the posted original in March; closing its period would cause the
+        # existing deferred journal-line validator to reject test teardown.
+        Period.objects.create(period="2025-04", status="CLOSED")
+        closed_common = ("--actor", "synthetic-operator", "--period", "2025-04", "--occurred-on", "2025-04-02")
         for name in self.extras:
-            with self.subTest(command=name), self.assertRaisesRegex(CommandError, "2025-03 is CLOSED"):
+            with self.subTest(command=name), self.assertRaisesRegex(CommandError, "2025-04 is CLOSED"):
                 extra = self.reverse_extras(original) if name == "reverse_accrual" else None
-                self.run_entry(name, evidence=f"synthetic-closed-{name}", extras=extra)
+                self.run_entry(name, evidence=f"synthetic-closed-{name}", extras=extra, common=closed_common)
 
     def test_all_six_refuse_out_of_period_date(self):
         original = self.posted_accrual()
