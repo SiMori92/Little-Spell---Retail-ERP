@@ -358,6 +358,10 @@ class ImportControlTests(TestCase):
                                 source_filename="SAMPLE_test", dataset_kind="SAMPLE")
         for index, event_type in enumerate(OPS_EVENT_TYPES):
             payload = {"evidence_ref": "synthetic-evidence", "discount_funded_by": "none"}
+            if event_type == "inventory.opening_counted":
+                payload.update({"counted_at": "2025-12-03", "lines": [
+                    {"sku": "SYNTHETIC", "qty_packs": "1", "agreed_unit_cost_twd": "1",
+                     "line_value_twd": "1", "condition": "sellable"}], "total_value_twd": "1"})
             self.assertTrue(emit_event(
                 event_type=event_type, entity_table="ops.order", entity_id=order.pk,
                 occurred_at=when, idempotency_key=f"synthetic-event-{index}",

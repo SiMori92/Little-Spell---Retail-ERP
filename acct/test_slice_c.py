@@ -234,7 +234,9 @@ class InventoryTieTests(TestCase):
         JournalLine.objects.create(entry=count_entry, account=Account.objects.get(pk="1231"), debit=Decimal(50), sku="COUNTED")
         JournalLine.objects.create(entry=count_entry, account=Account.objects.get(pk="3111"), credit=Decimal(50))
         LedgerEvent.objects.create(event_type="inventory.opening_counted", entity_table="ops.product", entity_id=1,
-            occurred_at=opening_at, payload={"sku":"COUNTED","qty":"5"},
+            occurred_at=opening_at, payload={"counted_at":"2025-02-28","evidence_ref":"synthetic-count",
+                "lines":[{"sku":"COUNTED","qty_packs":"5","agreed_unit_cost_twd":"10",
+                          "line_value_twd":"50","condition":"sellable"}],"total_value_twd":"50"},
             idempotency_key="synthetic-count", posted_entry_id=count_entry.pk,
             source_filename="synthetic", dataset_kind="SAMPLE")
         InventoryMove.objects.create(product=sku, kind="opening", qty_delta_packs=5,
