@@ -59,7 +59,10 @@ rows; G-5 checks estimates and source evidence during close.
 - Migration check: no changes detected (database history check unavailable locally).
 - Local PostgreSQL test attempt: blocked because no server is listening on
   `127.0.0.1:5432`; CI provides PostgreSQL 16 for database tests.
-- Slice J database suite and full CI: pending.
+- Full GitHub CI passed on work-branch commit `21746d2`: PostgreSQL 16,
+  migrations, grants, static collection, Django checks and all 163 tests,
+  including the nine Slice J tests. Run:
+  https://github.com/SiMori92/Little-Spell---Retail-ERP/actions/runs/36264235636
 
 Tests use synthetic actors, references, dates and amounts; they do not print
 customer rows. SAMPLE data cannot establish a real accrual basis, confirm a
@@ -68,4 +71,6 @@ real voucher or bank movement. Operators must supply those references before
 using the commands with actual records. `AcctManualEntry.first_flagged_on`
 exists on the model but is read nowhere; this slice does not change or use it.
 
-Elapsed implementation and verification time: pending final CI result.
+Elapsed wall time: 3.50 hours, 2026-09-26 15:26–18:57 UTC. This includes a
+pause between user turns while the task was idle; hands-on implementation and
+verification took approximately 0.3 hours.
