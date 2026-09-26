@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from acct.models import JournalLine, WacPosition
 from acct.posting import PostingError, plan, post_event
+from ops.etsy_import import ImportRefused, emit_event
 from ops.models import LedgerEvent, Product
 
 
@@ -45,6 +46,15 @@ class OpeningScheduleTests(TestCase):
         self.payload["total_value_twd"] = "38.0000"
         with self.assertRaisesRegex(PostingError, "total_value_twd disagrees"):
             plan(self.event())
+
+    def test_mismatched_total_is_refused_before_event_emission(self):
+        self.payload["total_value_twd"] = "38.0000"
+        with self.assertRaisesRegex(ImportRefused, "total_value_twd disagrees"):
+            emit_event(event_type="inventory.opening_counted", entity_table="ops.stockcount",
+                entity_id=1, occurred_at=datetime(2025, 3, 27, 12, tzinfo=dt_timezone.utc),
+                payload=self.payload, idempotency_key="opening-count|SAMPLE",
+                source_filename="SAMPLE_count.csv", dataset_kind="SAMPLE")
+        self.assertFalse(LedgerEvent.objects.exists())
 
     def test_second_opening_event_is_refused_for_dataset(self):
         self.event()

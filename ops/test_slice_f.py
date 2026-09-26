@@ -90,6 +90,18 @@ class FileIntakeTests(TestCase):
         self.assertEqual(Receipt.objects.count(), 1)
         self.assertEqual(LedgerEvent.objects.filter(event_type="cost.recorded").count(), 1)
 
+    def test_advertising_receipt_uses_declared_optional_columns(self):
+        columns = load_schema("receipts")["header"] + load_schema("receipts")["optional_columns"]
+        row = self.receipt_row(category="advertising", settled_via="bank",
+                               channel_attribution="meta", bank_account="1121")
+        path = self.source("receipts", "SAMPLE_advertising.csv", [row], columns=columns)
+        with self.verified():
+            result = import_receipts(path, commit=True)
+        event = LedgerEvent.objects.get(event_type="cost.recorded")
+        self.assertEqual((result.inserted_rows, result.inserted_events), (1, 1))
+        self.assertEqual(event.payload["channel_attribution"], "meta")
+        self.assertEqual(event.payload["bank_account"], "1121")
+
     def test_count_requires_every_sku_with_explicit_zero_and_reimports_cleanly(self):
         missing = self.source("counts", "SAMPLE_count.csv", self.count_rows()[:1])
         with self.assertRaisesRegex(ImportRefused, "omits active SKU.*SYN-B"):
