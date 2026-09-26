@@ -348,6 +348,8 @@ def inventory_adjusted(e):
     if position is None or position.qty_packs < qty or position.qty_packs <= 0:
         raise PostingError("inventory adjustment lacks sufficient SKU WAC stock")
     value = money(position.value_twd * qty / position.qty_packs)
+    if e.payload.get("source_value_twd") is not None and money(e.payload["source_value_twd"]) != value:
+        raise PostingError("inventory adjustment WAC changed since count intake; reconcile the source")
     return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value,
             sku=e.payload["sku"], qty_delta_packs=-qty)]
 

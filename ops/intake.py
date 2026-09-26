@@ -2,9 +2,9 @@
 
 import csv
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 
 class ImportRefused(ValueError):
@@ -22,6 +22,12 @@ class IntakeManifest:
     events: tuple[str, ...]
     natural_key: str
     key_from: Callable[[dict], str] | None = None
+    payload_builders: Mapping[str, Callable[..., dict]] = field(default_factory=dict)
+
+    def payload_for(self, event_type: str, **context) -> dict:
+        if event_type not in self.events or event_type not in self.payload_builders:
+            raise ImportRefused(f"{self.kind} manifest has no payload builder for {event_type}")
+        return self.payload_builders[event_type](**context)
 
 
 def classify_filename(path: Path, dataset_kind: str, manifest: IntakeManifest) -> str:

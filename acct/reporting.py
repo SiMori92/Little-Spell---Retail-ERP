@@ -549,7 +549,7 @@ def inventory_roll_forward(period):
         counts = LedgerEvent.objects.filter(event_type="inventory.opening_counted", dataset_kind=kind, occurred_at__lte=start,
             posted_entry_id__isnull=False).order_by("-occurred_at")
         count = next(((event, row) for event in counts for row in event.payload.get("lines", [])
-                      if row.get("sku") == sku), None)
+                      if isinstance(row, dict) and row.get("sku") == sku), None)
         opening_moves = list(InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, kind="opening",
                                                           occurred_at__lte=start).order_by("occurred_at"))
         if count is None or len(opening_moves) != 1:

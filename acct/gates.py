@@ -138,7 +138,7 @@ def g3(period):
         counts = LedgerEvent.objects.filter(event_type="inventory.opening_counted", dataset_kind=kind,
             occurred_at__lte=start, posted_entry_id__isnull=False, posting_error__isnull=True).order_by("-occurred_at")
         count = next(((event, row) for event in counts for row in event.payload.get("lines", [])
-                      if row.get("sku") == sku), None)
+                      if isinstance(row, dict) and row.get("sku") == sku), None)
         sku_moves = [move for move in moves if move.product_id == sku]
         sku_lines = [line for line in lines if line.sku == sku]
         opening_moves = [move for move in sku_moves if move.kind == "opening"]

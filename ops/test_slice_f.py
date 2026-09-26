@@ -11,7 +11,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from acct.posting import post_event
+from acct.models import WacPosition
+from acct.posting import PostingError, post_event
 from ops.file_intake import import_counts, import_receipts, load_schema
 from ops.intake import ImportRefused
 from ops.models import InventoryMove, LedgerEvent, Product, Receipt, StockCount, StockCountLine
@@ -118,6 +119,20 @@ class FileIntakeTests(TestCase):
         self.assertEqual((first.inserted_events, second.inserted_events), (1, 0))
         self.assertEqual(StockCount.objects.count(), 2)
         self.assertEqual(LedgerEvent.objects.filter(event_type="inventory.adjusted").count(), 1)
+
+    def test_adjustment_refuses_if_wac_changes_after_intake(self):
+        opening_path = self.source("counts", "SAMPLE_opening.csv", self.count_rows())
+        with self.verified():
+            import_counts(opening_path, commit=True)
+            post_event(LedgerEvent.objects.get(event_type="inventory.opening_counted"))
+            second_path = self.source("counts", "SAMPLE_second.csv", self.count_rows(
+                date="2025-03-28", ref="COUNT-SECOND", first="2"))
+            import_counts(second_path, commit=True)
+        position = WacPosition.objects.get(pk="SYN-A")
+        position.value_twd += 1
+        position.save(update_fields=["value_twd"])
+        with self.assertRaisesRegex(PostingError, "WAC changed since count intake"):
+            post_event(LedgerEvent.objects.get(event_type="inventory.adjusted"))
 
 
 class ReadOnlyAdminTests(TestCase):

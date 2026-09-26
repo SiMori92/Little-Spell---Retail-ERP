@@ -41,6 +41,32 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
 
 
+def _receipt_payload(row):
+    payload = {"category": row["category"], "settled_via": row["settled_via"],
+               "evidence_ref": row["evidence_ref"], "description": row["description"]}
+    if row["channel_attribution"]:
+        payload["channel_attribution"] = row["channel_attribution"]
+    if row["bank_account"]:
+        payload["bank_account"] = row["bank_account"]
+    return payload
+
+
+def _opening_payload(counted_at, evidence, lines, total):
+    payload_lines = [{**line, "agreed_unit_cost_twd": str(line["agreed_unit_cost_twd"]),
+                      "line_value_twd": str(line["line_value_twd"])} for line in lines]
+    payload = {"counted_at": counted_at.isoformat(), "evidence_ref": evidence,
+               "lines": payload_lines, "total_value_twd": str(total)}
+    if Decimal(payload["total_value_twd"]) != sum(
+            (Decimal(line["line_value_twd"]) for line in payload_lines), Decimal(0)):
+        raise ImportRefused("opening count total_value_twd disagrees with sum of lines")
+    return payload
+
+
+def _adjustment_payload(sku, delta, evidence, value):
+    return {"sku": sku, "qty": str(delta), "evidence_ref": evidence,
+            "source_value_twd": str(value)}
+
+
 def manifest(kind: str) -> IntakeManifest:
     if kind not in {"receipts", "counts"}:
         raise ImportRefused(f"Unknown intake kind {kind}")
@@ -57,6 +83,12 @@ def manifest(kind: str) -> IntakeManifest:
         natural_key="dataset + evidence_ref" if kind == "receipts" else
                     "dataset + count evidence_ref, then SKU",
         key_from=lambda row: _digest(row["evidence_ref"]),
+        payload_builders={"cost.recorded": lambda row: _receipt_payload(row)} if kind == "receipts" else {
+            "inventory.opening_counted": lambda counted_at, evidence, lines, total:
+                _opening_payload(counted_at, evidence, lines, total),
+            "inventory.adjusted": lambda sku, delta, evidence, value:
+                _adjustment_payload(sku, delta, evidence, value),
+        },
     )
 
 
@@ -116,7 +148,7 @@ def _receipt(row: dict) -> dict:
 @transaction.atomic
 def import_receipts(path, *, commit: bool = False) -> IntakeResult:
     path = Path(path)
-    settings = DatasetSettings.load()
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
     source = manifest("receipts")
     parsed = [_receipt(row) for row in prepare_source(path, settings.dataset_kind, source, commit=commit)]
     if not path.name.startswith("SAMPLE_"):
@@ -139,12 +171,7 @@ def import_receipts(path, *, commit: bool = False) -> IntakeResult:
         receipt = Receipt.objects.create(**row, idempotency_key=key,
                                          source_filename=path.name, dataset_kind=settings.dataset_kind)
         result.inserted_rows += 1
-        payload = {"category": row["category"], "settled_via": row["settled_via"],
-                   "evidence_ref": row["evidence_ref"], "description": row["description"]}
-        if row["channel_attribution"]:
-            payload["channel_attribution"] = row["channel_attribution"]
-        if row["bank_account"]:
-            payload["bank_account"] = row["bank_account"]
+        payload = source.payload_for("cost.recorded", row=row)
         event_key = f"cost.recorded|{key}"
         candidate = LedgerEvent(event_type="cost.recorded", entity_table="ops.receipt", entity_id=receipt.pk,
             occurred_at=_occurred(row["occurred_on"]), amount_minor=int(row["amount_twd"] * 100),
@@ -206,7 +233,7 @@ def _count_rows(source_rows: list[dict]) -> tuple[date, str, list[dict], Decimal
 @transaction.atomic
 def import_counts(path, *, commit: bool = False) -> IntakeResult:
     path = Path(path)
-    settings = DatasetSettings.load()
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
     source = manifest("counts")
     source_rows = prepare_source(path, settings.dataset_kind, source, commit=commit)
     counted_at, evidence, lines, total = _count_rows(source_rows)
@@ -259,13 +286,8 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
         result.inserted_rows += 1
     occurred_at = _occurred(counted_at)
     if kind == "opening":
-        payload_lines = [{**line, "agreed_unit_cost_twd": str(line["agreed_unit_cost_twd"]),
-                          "line_value_twd": str(line["line_value_twd"])} for line in lines]
-        payload = {"counted_at": counted_at.isoformat(), "evidence_ref": evidence,
-                   "lines": payload_lines, "total_value_twd": str(total)}
-        if Decimal(payload["total_value_twd"]) != sum(
-                (Decimal(line["line_value_twd"]) for line in payload_lines), Decimal(0)):
-            raise ImportRefused("opening count total_value_twd disagrees with sum of lines")
+        payload = source.payload_for("inventory.opening_counted", counted_at=counted_at,
+                                     evidence=evidence, lines=lines, total=total)
         for line in lines:
             InventoryMove.objects.create(product_id=line["sku"], kind="opening",
                 qty_delta_packs=line["qty_packs"], value_delta_twd=line["line_value_twd"],
@@ -294,7 +316,8 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
             result.inserted_rows += 1
             candidate = LedgerEvent(event_type="inventory.adjusted", entity_table="ops.stockcountline",
                 entity_id=line_models[sku].pk, occurred_at=occurred_at,
-                payload={"sku": sku, "qty": str(delta), "evidence_ref": evidence},
+                payload=source.payload_for("inventory.adjusted", sku=sku, delta=delta,
+                                           evidence=evidence, value=value),
                 idempotency_key=f"inventory.adjusted|{key}|{sku}", source_filename=path.name,
                 dataset_kind=settings.dataset_kind)
             try:

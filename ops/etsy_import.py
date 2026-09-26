@@ -49,6 +49,29 @@ def load_schema(kind: str) -> dict:
     return json.loads((_SCHEMAS / f"etsy_{kind}_header_v1.json").read_text())
 
 
+def _placed_payload(parsed):
+    return {"discount": parsed["discount"], "discount_funded_by": parsed["funder"],
+            "tax_remitted_by_platform": parsed["tax"],
+            "tax_treatment_hint": "domestic" if parsed["country"] == "TW" else "export"}
+
+
+def _fee_payload(item):
+    return {"fee_components": [{"code": _FEE_CODES[item["type"]], "amount": abs(item["fee"])}],
+            "order_id": item["order_ref"]}
+
+
+def _listing_payload(item):
+    return {"category": "platform_listing_fee", "settled_via": "etsy_rail",
+            "listing_id": item["listing_ref"]}
+
+
+def _settlement_payload(item, statement, composition_ok):
+    return {"composition_unresolved": not composition_ok,
+            "bank_account_ref_partial": item["info"], "value_date": None, "bank_credit_ref": None,
+            "covers_order_ids": sorted({x["order_ref"] for x in statement if x["order_ref"]})
+            if composition_ok else []}
+
+
 def etsy_manifest(kind: str) -> IntakeManifest:
     fixture = load_schema(kind)
     return IntakeManifest(
@@ -60,6 +83,18 @@ def etsy_manifest(kind: str) -> IntakeManifest:
                else ("order.fees_assessed", "cost.recorded", "settlement.received"),
         natural_key="Etsy order ID / transaction ID" if kind == "orderitems"
                     else "period + canonical statement row hash + duplicate occurrence",
+        key_from=(lambda row: row["Order ID"]) if kind == "orderitems" else
+                 (lambda row: row["key"]),
+        payload_builders={
+            "order.placed": lambda parsed: _placed_payload(parsed),
+            "order.shipped": lambda parsed: {},
+            "order.cogs_relieved": lambda parsed: {"cost_basis": "provisional"},
+        } if kind == "orderitems" else {
+            "order.fees_assessed": lambda item: _fee_payload(item),
+            "cost.recorded": lambda item: _listing_payload(item),
+            "settlement.received": lambda item, statement, composition_ok:
+                _settlement_payload(item, statement, composition_ok),
+        },
     )
 
 
@@ -371,6 +406,7 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
     result.parsed_order_rows = len(order_rows)
     result.parsed_statement_rows = len(statement_rows)
     orders = _orders(order_rows, coupon_funding, result)
+    order_manifest, statement_manifest = etsy_manifest("orderitems"), etsy_manifest("statement")
     period = _period(statement_path)
     statement, digest = _statement(statement_rows, period, orders, result)
     known_products = set(Product.objects.filter(
@@ -449,11 +485,9 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
             result.inserted_rows += 1
         result.inserted_events += emit_event(
             event_type="order.placed", entity_table="ops.order", entity_id=obj.pk,
-            occurred_at=parsed["date"], idempotency_key=f"order.placed|etsy|{order_id}",
+            occurred_at=parsed["date"], idempotency_key=f"order.placed|etsy|{order_manifest.key_from({'Order ID': order_id})}",
             amount_minor=parsed["gross"], currency=parsed["currency"],
-            payload={"discount": parsed["discount"], "discount_funded_by": parsed["funder"],
-                     "tax_remitted_by_platform": parsed["tax"],
-                     "tax_treatment_hint": "domestic" if parsed["country"] == "TW" else "export"},
+            payload=order_manifest.payload_for("order.placed", parsed=parsed),
             source_filename=order_path.name, dataset_kind=settings.dataset_kind,
         )
         if parsed["shipped"]:
@@ -472,7 +506,7 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
                     event_type=typ, entity_table="ops.order", entity_id=obj.pk,
                     occurred_at=parsed["shipped"], idempotency_key=f"{key}|{order_id}",
                     amount_minor=None if typ == "order.cogs_relieved" else parsed["gross"],
-                    currency=parsed["currency"], payload={"cost_basis": "provisional"} if typ == "order.cogs_relieved" else {},
+                    currency=parsed["currency"], payload=order_manifest.payload_for(typ, parsed=parsed),
                     source_filename=order_path.name, dataset_kind=settings.dataset_kind,
                 )
     if not existing_period:
@@ -495,27 +529,23 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
             result.inserted_rows += 1
             if item["type"] in _FEE_CODES:
                 event_type = "order.fees_assessed"
-                payload = {"fee_components": [{"code": _FEE_CODES[item["type"]], "amount": abs(item["fee"])}],
-                           "order_id": item["order_ref"]}
+                payload = statement_manifest.payload_for(event_type, item=item)
                 amount = abs(item["fee"])
                 entity_table, entity_id = "ops.order", Order.objects.get(channel=channel, channel_order_id=item["order_ref"]).pk
             elif item["type"] == "Listing Fee":
                 event_type, amount = "cost.recorded", abs(item["fee"])
-                payload = {"category": "platform_listing_fee", "settled_via": "etsy_rail",
-                           "listing_id": item["listing_ref"]}
+                payload = statement_manifest.payload_for(event_type, item=item)
                 entity_table, entity_id = "ops.etsystatementrow", row.pk
             elif item["type"] == "Deposit" and item["net"] < 0:
                 event_type, amount = "settlement.received", abs(item["net"])
-                payload = {"composition_unresolved": not composition_ok,
-                           "bank_account_ref_partial": item["info"],
-                           "value_date": None, "bank_credit_ref": None,
-                           "covers_order_ids": sorted({x["order_ref"] for x in statement if x["order_ref"]}) if composition_ok else []}
+                payload = statement_manifest.payload_for(event_type, item=item, statement=statement,
+                                                         composition_ok=composition_ok)
                 entity_table, entity_id = "ops.etsystatementrow", row.pk
             else:
                 continue  # Sale is a control; a positive Deposit needs reversal evidence.
             result.inserted_events += emit_event(
                 event_type=event_type, entity_table=entity_table, entity_id=entity_id,
-                occurred_at=item["date"], idempotency_key=f"{event_type}|{item['key']}",
+                occurred_at=item["date"], idempotency_key=f"{event_type}|{statement_manifest.key_from(item)}",
                 amount_minor=amount, currency=item["currency"], payload=payload,
                 source_filename=statement_path.name, dataset_kind=settings.dataset_kind,
             )
