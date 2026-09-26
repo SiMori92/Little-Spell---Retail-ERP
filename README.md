@@ -9,6 +9,8 @@ temporary-tattoo-sticker business.
 
 Slices 0–D established the operational ledger, posting, reporting and close gates.
 Slice F adds evidenced receipt and physical-count intake plus read-only admin views.
+Slice J adds six accounting-originated entry commands. Each creates an unposted
+`AcctManualEntry`; posting remains a separate review step.
 The source schema fixtures remain `verified:false`, so `--commit` refuses until
 the founder verifies the headers against real source files.
 
@@ -78,6 +80,27 @@ the database user running it needs `CREATEROLE`.
 uv run python manage.py collectstatic --noinput   # WhiteNoise manifest
 uv run python manage.py test
 ```
+
+## Accounting-originated entries (Slice J)
+
+All six commands require `--actor`, `--evidence-ref`, `--period YYYY-MM`, and
+`--occurred-on YYYY-MM-DD`. Add `--dry-run` to preview the exact debit and credit
+lines without saving. Use a stable evidence reference for each decision: rerunning
+the same command reports the existing row.
+
+```bash
+uv run python manage.py accrue --actor operator --evidence-ref synthetic-accrual-1 --period 2025-03 --occurred-on 2025-03-27 --expense-account 6131 --accrual-account 2191 --amount 10 --basis-note "synthetic estimate"
+uv run python manage.py reverse_accrual --actor operator --evidence-ref synthetic-reversal-1 --period 2025-03 --occurred-on 2025-03-28 --reverses 1
+uv run python manage.py revalue --actor operator --evidence-ref synthetic-rate-1 --period 2025-03 --occurred-on 2025-03-27 --account 1191 --amount 10 --direction loss --rate-source "synthetic rate"
+uv run python manage.py record_tax_assessed --actor operator --evidence-ref synthetic-assessment-1 --period 2025-03 --occurred-on 2025-03-27 --amount 10
+uv run python manage.py record_tax_paid --actor operator --evidence-ref synthetic-payment-1 --period 2025-03 --occurred-on 2025-03-27 --amount 10
+uv run python manage.py move_owner_funds --actor operator --evidence-ref synthetic-capital-1 --period 2025-03 --occurred-on 2025-03-27 --amount 10 --funds-type capital
+```
+
+After reviewing a saved row, post explicitly with
+`uv run python manage.py post_accounting_event manual <id>`. A reversal accepts
+only a posted accrual ID and copies its amount. The sample references above are
+examples, not source evidence for an actual transaction.
 
 ## Slice A Etsy dry-run
 
