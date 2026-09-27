@@ -195,3 +195,177 @@ sequence and completed successfully:
 Ran 299 tests in 54.455s
 OK
 ```
+
+---
+
+# Slice R-2.1 — Packaging stock-count value goes to `1233`
+
+Date: 2026-09-28 HKT
+
+Resolves: `GATE_R2_RESULT.md` finding **F-1** (packaging counted into `1231`), against catalogue E.6 item 4 and
+Addendum G.1/G.2.
+
+Branch: `claude/packaging-stock-count-1233-8f9f8b`, fast-forwarded onto `main`
+
+Gate base: `a9f7960`
+
+| Commit | What | CI run (PostgreSQL 16) | Result |
+|---|---|---|---|
+| `e165cf8` | R-2.1 tests alone, old code | `36334276895` | FAIL: 5 failures, 4 errors, all in `ops/test_slice_r21.py` (I-4 passed; see below) |
+| `07019c5` | I-4 hardened, old code | `36334413933` | FAIL: 6 failures, 4 errors. **All nine R-2.1 tests fail.** The other 298 pass |
+| `b64d844` | The fix | `36334533154` | FAIL: 1 error, `ops/test_slice_a.py` fixture (see Tests touched) |
+| `ce953f1` | Slice A fixture touched | **`36334670864`** | **PASS: `Ran 307 tests … OK`** |
+
+**Implementation commit: `ce953f1`. PostgreSQL 16 CI run: `36334670864` — PASS.** No local PostgreSQL service
+or client was available (no container runtime either), so every database run above is GitHub Actions. There was
+no SQLite fallback.
+
+Still **28** events (`acct/posting.py` asserts it at import). No migration. Nothing outside `app/` changed.
+
+## Result
+
+`inventory.opening_counted` and `inventory.adjusted` now choose their stock account from
+`Product.product_type`, the same rule `po.received` uses (Addendum G.1): `packaging` → `1233`,
+`sellable` → `1231`. The rule is `acct.posting.inventory_account_for(sku)`. A SKU that is not a product
+refuses posting: `inventory SKU <sku> is not a known product`.
+
+- **I-1 opening count.** Each sellable-condition line debits `1233` or `1231` by `product_type`. The credit
+  (`3111`), per-line values, the zero-pair evidence and the total check are unchanged. Count intake now writes
+  `inventory_account` onto every payload line. Posting re-derives it and refuses a line whose recorded
+  account disagrees.
+- **I-2 later count.** Intake records `inventory_account` in the `inventory.adjusted` payload. Posting derives
+  it again from `product_type` and credits that account: packaging posts Dr `5121` / Cr `1233`, sellable stays
+  Dr `5121` / Cr `1231`. A payload whose `inventory_account` disagrees is a `posting_error`, and so is one with
+  no `inventory_account`. Neither is ever corrected: the event stays unposted with its payload as written, and
+  no journal entry is created.
+- **I-3 WAC.** `apply_wac` puts only the lines posted to `1231` into `WacPosition` on the opening count, and moves
+  WAC on an adjustment only when the credit is `1231`. The `po.received` rule is unchanged. Packaging never has
+  a `WacPosition`.
+- **I-4 G-3.** `acct.gates.g3` passes after the opening count (packaging 1,000 pcs / 7,000.0000 on `1233`) and
+  after the adjustment (990 pcs / 6,930.0000). Both figures are > 0.
+- **I-5 damaged packaging.** Handled exactly as for a sellable SKU: a `damaged_lines[]` memo with no journal
+  line, no move, no WAC. The damaged pieces sit inside the `1233` shortfall.
+
+### I-3 — the packaging cost basis on `1233`, named
+
+**Packaging 1233 book average (per SKU):** Σ value of the SKU-tagged `1233` journal lines ÷ Σ their
+`qty_delta_pieces`, within the dataset (`acct.posting.packaging_book`). It is **not** a `WacPosition`, and
+nothing writes one for packaging.
+
+This is G-2's basis carried forward. G-2 posts each packaging receipt as Dr `1233` at its landed value with
+`sku` and `qty_delta_pieces` (e.g. mailers 105,766.4234 for 15,000 good pieces, 7.0511/pc derived). The opening
+count now posts the same tagged pair. A packaging shortfall is valued at that SKU's tagged `1233` value ÷
+pieces, rounded half-up to 0.0001, then checked again at posting against the intake's `source_value_twd`.
+For count intake, the packaging "position" is that `1233` book. It is checked against the SKU's
+`InventoryMove` pieces, exactly as sellable WAC is.
+
+## Expected ledgers (asserted to 0.0001)
+
+### Opening count: `PKG-MAIL-LS` 1,000 @ 7.0000 · `TS-MN-006-P` 10 @ 10.0000
+
+`inventory.opening_counted`, 2026-10-04:
+
+```text
+1233  PKG-MAIL-LS  qty +1000  Dr 7,000.0000  Cr     0.0000
+3111  —             qty     —  Dr     0.0000  Cr 7,000.0000
+1231  TS-MN-006-P  qty   +10  Dr   100.0000  Cr     0.0000
+3111  —             qty     —  Dr     0.0000  Cr   100.0000
+```
+
+Totals: **Dr 1233 7,000.0000 · Dr 1231 100.0000 · Cr 3111 7,100.0000**. `WacPosition`: `TS-MN-006-P` only,
+10 pcs / 100.0000. None for `PKG-MAIL-LS`. G-3: PASS.
+
+### Later count: `PKG-MAIL-LS` 990 (book 1,000); `TS-MN-006-P` 10 (no change)
+
+`inventory.adjusted`, 2026-10-05, payload `inventory_account = "1233"`, `qty_pieces = 10`,
+`source_value_twd = 70.0000`:
+
+```text
+5121  PKG-MAIL-LS  qty    —  Dr 70.0000  Cr  0.0000
+1233  PKG-MAIL-LS  qty  -10  Dr  0.0000  Cr 70.0000
+```
+
+No `1231` line. On-hand `PKG-MAIL-LS` 990. `1233` book 990 pcs / 6,930.0000. `TS-MN-006-P` WAC is still
+10 pcs / 100.0000. G-3: PASS.
+
+A sellable shortfall in the same set-up (`TS-MN-006-P` counted 7) still posts
+Dr `5121` 30.0000 / Cr `1231` 30.0000, qty −3, and its payload records `inventory_account = "1231"`.
+
+## New refusal messages
+
+```text
+inventory SKU <sku> is not a known product
+opening count <sku> inventory_account <recorded> disagrees with product_type, which posts to <derived> (R-2.1)
+inventory adjustment inventory_account is required (R-2.1)
+inventory adjustment inventory_account <recorded> disagrees with product_type of <sku>, which posts to <derived> (R-2.1)
+inventory adjustment lacks sufficient SKU packaging stock on 1233
+```
+
+## Watching each invariant fail
+
+On the old code, runs `36334276895` / `36334413933`:
+
+| Test (`ops/test_slice_r21.py`) | Inv. | On `a9f7960` code |
+|---|---|---|
+| `test_i1_opening_count_debits_1233_for_packaging_and_1231_for_sellable` | I-1 | ERROR `KeyError: 'inventory_account'` (no account recorded; the ledger had `1231` for packaging) |
+| `test_i1_payload_inventory_account_disagreeing_with_product_type_refuses` | I-1 | FAIL `PostingError not raised` |
+| `test_i2_later_packaging_shortfall_posts_5121_against_1233` | I-2 | ERROR `KeyError: 'inventory_account'` |
+| `test_i2_sellable_shortfall_stays_on_1231_and_records_its_account` | I-2 | ERROR `KeyError: 'inventory_account'` |
+| `test_i2_disagreeing_or_missing_inventory_account_is_a_posting_error` (3 sub-tests) | I-2 | FAIL ×3 `CommandError not raised` |
+| `test_i3_packaging_never_enters_sellable_wac` | I-3 | FAIL: a `WacPosition` existed for `PKG-MAIL-LS` |
+| `test_i4_g3_ties_with_packaging_on_1233_after_opening_and_adjustment` | I-4 | FAIL (second run only; see below) |
+| `test_i5_damaged_packaging_is_a_zero_value_memo_as_for_sellable` | I-5 | ERROR `KeyError: '1233'` (no `1233` line) |
+
+Two things to state plainly:
+
+- **I-4's first version passed on the old code (run `36334276895`).** G-3 nets `1231+1232+1233` per SKU, so it
+  ties even with packaging misposted to `1231`. G-3 passing alone cannot prove I-4. The test now also asserts
+  that the packaging value and pieces are on `1233`, and that the SKU has no `1231` line. That version fails
+  on the old code (run `36334413933`) and passes on the fix.
+- **The memo half of I-5 was already true at `a9f7960`.** R-2 posted no line and no move for any damaged row.
+  The I-5 test fails on the old code only on the `1233` leg: damaged packaging behaves like sellable once the
+  sellable packaging shortfall is on `1233`.
+
+## Tests touched
+
+- `ops/test_slice_r21.py` — **new**, 8 tests / 10 cases: I-1 to I-5, the expected figures, G-3 after the
+  opening count and after the adjustment, and the posting-error path through `post_accounting_event`.
+- `acct/test_slice_b.py` — `test_every_postable_ops_rule_balances`: the hand-built `inventory.adjusted` payload
+  now carries `"inventory_account": "1231"` (`TESTSKU` is sellable). A payload without the field is now a
+  posting error, by I-2.
+- `ops/test_slice_a.py` — `test_all_22_ops_catalogue_types_are_emittable_without_posting`: creates a `Product`
+  for its synthetic `SYNTHETIC` opening-count line. Emission dry-runs the posting rule. With no product there is
+  no `product_type` to choose `1231` or `1233`, so the rule now refuses, correctly. Count intake already refuses
+  unknown SKUs.
+
+No other test file changed.
+
+## Verification
+
+Local non-database checks at `ce953f1`, all clean:
+
+```text
+manage.py check                                   System check identified no issues
+manage.py makemigrations --check --dry-run        No changes detected
+python3 -m unittest tests.test_pre_commit_hook    OK
+tools/repo_guard.py --mode tracked --check paths  exit 0
+tools/repo_guard.py --mode tracked --check content exit 0
+git diff --check a9f7960 ce953f1                  clean
+```
+
+PostgreSQL 16 (GitHub Actions `36334670864`, head `ce953f1`): full CI sequence, **`Ran 307 tests … OK`**.
+That is 299 from R-2 plus the 8 new tests.
+
+## Open items (not changed by R-2.1)
+
+1. **Packaging receipts create no `InventoryMove`** (G-2 report §8 item 2; `ops/receiving.py` skips non-`1231`
+   rows). The opening count is correct. But after the first packaging `po.received`, the SKU's `1233` pieces
+   exceed its move pieces. G-3 then fails for that SKU, and a later count refuses it:
+   `count <sku> has no tied WAC/on-hand position`. That refusal is safe, not silent. **The first opening count is
+   unaffected. Counting packaging after a packaging receipt needs receipt moves for `1233` rows.**
+2. **`order.cogs_relieved` relieves `1233` by an untagged `packaging_twd` lump** (G-2 §8 item 2). Once one posts,
+   G-3 is `NOT_RUNNABLE` (untagged inventory value), and the per-SKU `1233` book does not see that relief.
+   Packaging relief per SKU still needs a ruling.
+3. **A pre-R-2.1 `inventory.adjusted` event still unposted** now fails posting with
+   `inventory adjustment inventory_account is required (R-2.1)`. Only SAMPLE data can hold one. It must be
+   re-counted, not patched.
