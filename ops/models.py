@@ -597,9 +597,16 @@ class StockCountLine(Provenance):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["count", "product"], name="ops_count_one_line_per_sku"),
+            models.UniqueConstraint(fields=["count", "product", "condition"],
+                                    name="ops_count_one_line_per_sku_condition"),
             models.CheckConstraint(condition=Q(agreed_unit_cost_twd__gte=0, line_value_twd__gte=0),
                                    name="ops_count_nonnegative_value"),
+            models.CheckConstraint(
+                condition=(Q(condition="sellable") |
+                           Q(condition="damaged_unsellable", qty_pieces__gt=0,
+                             agreed_unit_cost_twd=0, line_value_twd=0)),
+                name="ops_count_damaged_positive_nil_value",
+            ),
         ]
 
 

@@ -43,7 +43,7 @@ class FileIntakeTests(TestCase):
             {"counted_at": date, "evidence_ref": ref, "sku": "SYN-A", "qty_pieces": first,
              "agreed_unit_cost_twd": "12.50", "condition": "sellable"},
             {"counted_at": date, "evidence_ref": ref, "sku": "SYN-B", "qty_pieces": second,
-             "agreed_unit_cost_twd": "5.00", "condition": "damaged_unsellable"},
+             "agreed_unit_cost_twd": "5.00", "condition": "sellable"},
         ]
 
     def receipt_row(self, **changes):

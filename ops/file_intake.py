@@ -79,19 +79,26 @@ def _receipt_payload(row):
 
 
 def _opening_payload(counted_at, evidence, lines, total):
+    sellable = [line for line in lines if line["condition"] == "sellable"]
+    damaged = [line for line in lines if line["condition"] == "damaged_unsellable"]
     payload_lines = [{**line, "agreed_unit_cost_twd": str(line["agreed_unit_cost_twd"]),
-                      "line_value_twd": str(line["line_value_twd"])} for line in lines]
+                      "line_value_twd": str(line["line_value_twd"])} for line in sellable]
     payload = {"counted_at": counted_at.isoformat(), "evidence_ref": evidence,
-               "lines": payload_lines, "total_value_twd": str(total)}
+               "lines": payload_lines,
+               "damaged_lines": [{"sku": line["sku"], "qty_pieces": line["qty_pieces"]}
+                                   for line in damaged],
+               "total_value_twd": str(total)}
     if Decimal(payload["total_value_twd"]) != sum(
             (Decimal(line["line_value_twd"]) for line in payload_lines), Decimal(0)):
         raise ImportRefused("opening count total_value_twd disagrees with sum of lines")
     return payload
 
 
-def _adjustment_payload(sku, delta, evidence, value):
+def _adjustment_payload(sku, delta, evidence, value, damaged_lines):
     return {"sku": sku, "qty_pieces": str(delta), "evidence_ref": evidence,
-            "source_value_twd": str(value)}
+            "source_value_twd": str(value),
+            "damaged_lines": [{"sku": line["sku"], "qty_pieces": line["qty_pieces"]}
+                              for line in damaged_lines]}
 
 
 MANIFESTS: dict[str, Callable[[], IntakeManifest]] = {}
@@ -137,8 +144,8 @@ def _count_manifest() -> IntakeManifest:
         payload_builders={
             "inventory.opening_counted": lambda counted_at, evidence, lines, total:
                 _opening_payload(counted_at, evidence, lines, total),
-            "inventory.adjusted": lambda sku, delta, evidence, value:
-                _adjustment_payload(sku, delta, evidence, value),
+            "inventory.adjusted": lambda sku, delta, evidence, value, damaged_lines:
+                _adjustment_payload(sku, delta, evidence, value, damaged_lines),
         },
         version=2,
     )
@@ -766,17 +773,43 @@ def _count_rows(source_rows: list[dict]) -> tuple[date, str, list[dict], Decimal
         raise ImportRefused("counted_at must be one date for the whole count schedule")
     if len(references) != 1:
         raise ImportRefused("evidence_ref must be one reference for the whole count schedule")
-    if len({line["sku"] for line in lines}) != len(lines):
-        raise ImportRefused("count file repeats a SKU")
+    keys = [(line["sku"], line["condition"]) for line in lines]
+    if len(set(keys)) != len(keys):
+        repeated = next(key for key in keys if keys.count(key) > 1)
+        raise ImportRefused(
+            f"count file repeats (sku, condition): {repeated[0]}, {repeated[1]}"
+        )
     known = set(Product.objects.values_list("sku", flat=True))
-    missing = sorted(known - {line["sku"] for line in lines})
-    if missing:
-        raise ImportRefused(f"count file omits active SKU(s): {', '.join(missing)}; use explicit zero rows")
     unknown = sorted({line["sku"] for line in lines} - known)
     if unknown:
         raise ImportRefused(f"count file has unknown SKU(s): {', '.join(unknown)}")
-    return days.pop(), references.pop(), sorted(lines, key=lambda row: row["sku"]), sum(
-        (line["line_value_twd"] for line in lines), Decimal(0))
+    sellable_skus = {line["sku"] for line in lines if line["condition"] == "sellable"}
+    for line in lines:
+        if line["condition"] != "damaged_unsellable":
+            continue
+        sku = line["sku"]
+        if line["qty_pieces"] <= 0:
+            raise ImportRefused(
+                f"count {sku} damaged_unsellable qty_pieces must be greater than zero"
+            )
+        if line["agreed_unit_cost_twd"] != Decimal("0.0000"):
+            raise ImportRefused(
+                f"count {sku} damaged_unsellable agreed_unit_cost_twd must be exactly 0.0000"
+            )
+        if sku not in sellable_skus:
+            raise ImportRefused(
+                f"count damaged_unsellable line for {sku} requires a sellable line for the same SKU"
+            )
+    missing = sorted(known - sellable_skus)
+    if missing:
+        raise ImportRefused(
+            f"count file omits active SKU sellable line(s): {', '.join(missing)}; "
+            "use explicit zero rows"
+        )
+    ordered = sorted(lines, key=lambda row: (row["sku"], row["condition"] != "sellable"))
+    total = sum((line["line_value_twd"] for line in ordered
+                 if line["condition"] == "sellable"), Decimal(0))
+    return days.pop(), references.pop(), ordered, total
 
 
 @transaction.atomic
@@ -792,7 +825,8 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
     prior = StockCount.objects.filter(dataset_kind=settings.dataset_kind, evidence_ref=evidence).first()
     if prior:
         saved = [(line.product_id, line.qty_pieces, line.agreed_unit_cost_twd,
-                  line.line_value_twd, line.condition) for line in prior.lines.order_by("product_id")]
+                  line.line_value_twd, line.condition)
+                 for line in prior.lines.order_by("product_id", "condition")]
         observed = [(line["sku"], line["qty_pieces"], line["agreed_unit_cost_twd"],
                      line["line_value_twd"], line["condition"]) for line in lines]
         if prior.counted_at != counted_at or prior.total_value_twd != total or saved != observed:
@@ -801,15 +835,19 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
     opening = LedgerEvent.objects.filter(event_type="inventory.opening_counted",
                                           dataset_kind=settings.dataset_kind).first()
     kind = "adjustment" if opening else "opening"
+    sellable_lines = [line for line in lines if line["condition"] == "sellable"]
+    damaged_lines = [line for line in lines if line["condition"] == "damaged_unsellable"]
     positions = {}
     if kind == "adjustment":
         if not opening.posted_entry_id:
             raise ImportRefused("opening count must be posted before adjustment intake")
-        positions = WacPosition.objects.select_for_update().in_bulk([line["sku"] for line in lines])
+        positions = WacPosition.objects.select_for_update().in_bulk(
+            [line["sku"] for line in sellable_lines]
+        )
         onhand = dict(InventoryMove.objects.filter(dataset_kind=settings.dataset_kind,
             product_id__in=positions).values("product_id").annotate(total=Sum("qty_delta_pieces"))
             .values_list("product_id", "total"))
-        for line in lines:
+        for line in sellable_lines:
             sku, target = line["sku"], line["qty_pieces"]
             position = positions.get(sku)
             if position is None or position.qty_pieces != Decimal(onhand.get(sku, 0)):
@@ -831,13 +869,13 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
             qty_pieces=line["qty_pieces"], agreed_unit_cost_twd=line["agreed_unit_cost_twd"],
             line_value_twd=line["line_value_twd"], condition=line["condition"],
             source_filename=path.name, dataset_kind=settings.dataset_kind)
-        line_models[line["sku"]] = item
+        line_models[(line["sku"], line["condition"])] = item
         result.inserted_rows += 1
     occurred_at = _occurred(counted_at)
     if kind == "opening":
         payload = source.payload_for("inventory.opening_counted", counted_at=counted_at,
                                      evidence=evidence, lines=lines, total=total)
-        for line in lines:
+        for line in sellable_lines:
             InventoryMove.objects.create(product_id=line["sku"], kind="opening",
                 qty_delta_pieces=line["qty_pieces"], value_delta_twd=line["line_value_twd"],
                 occurred_at=occurred_at, idempotency_key=f"opening-move|{key}|{line['sku']}",
@@ -848,7 +886,7 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
             idempotency_key=f"opening-count|{settings.dataset_kind}", payload=payload,
             source_filename=path.name, dataset_kind=settings.dataset_kind)
     else:
-        for line in lines:
+        for line in sellable_lines:
             sku = line["sku"]
             position = positions[sku]
             delta = position.qty_pieces - Decimal(line["qty_pieces"])
@@ -864,9 +902,10 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
                 dataset_kind=settings.dataset_kind)
             result.inserted_rows += 1
             candidate = LedgerEvent(event_type="inventory.adjusted", entity_table="ops.stockcountline",
-                entity_id=line_models[sku].pk, occurred_at=occurred_at,
+                entity_id=line_models[(sku, "sellable")].pk, occurred_at=occurred_at,
                 payload=source.payload_for("inventory.adjusted", sku=sku, delta=delta,
-                                           evidence=evidence, value=value),
+                                           evidence=evidence, value=value,
+                                           damaged_lines=damaged_lines),
                 idempotency_key=f"inventory.adjusted|{key}|{sku}", source_filename=path.name,
                 dataset_kind=settings.dataset_kind)
             try:
@@ -874,7 +913,7 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
             except PostingError as exc:
                 raise ImportRefused(f"count {sku} adjustment posting rule refused: {exc}") from exc
             result.inserted_events += emit_event(event_type="inventory.adjusted",
-                entity_table="ops.stockcountline", entity_id=line_models[sku].pk,
+                entity_table="ops.stockcountline", entity_id=line_models[(sku, "sellable")].pk,
                 occurred_at=occurred_at, idempotency_key=candidate.idempotency_key,
                 payload=candidate.payload, source_filename=path.name, dataset_kind=settings.dataset_kind)
     return result

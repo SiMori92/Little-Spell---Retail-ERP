@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from acct.models import AcctManualEntry, JournalEntry, JournalLine
 from core.models import DatasetSettings
-from ops.models import InventoryMove, LedgerEvent, Order, Product
+from ops.models import InventoryMove, LedgerEvent, Order, Product, StockCount
 
 CENTI = Decimal("0.0001")
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -629,9 +629,38 @@ def inventory_roll_forward(period):
     subtotal["gl_value"] = (known(_net(all_inventory, INVENTORY_ACCOUNTS), period, kind)
                             if all_inventory else absent(period, kind, "no inventory ledger value"))
     rows.append({"sku": "TOTAL", **subtotal, "identity": status})
+    damaged_columns = (Column("sku", "SKU", False), Column("pieces", "Pieces"),
+                       Column("counted_at", "Counted at", False),
+                       Column("evidence_ref", "Evidence ref", False))
+    latest_count = (StockCount.objects.filter(dataset_kind=kind, counted_at__lt=end.date())
+                    .order_by("-counted_at", "-pk").first())
+    damaged_rows = []
+    if latest_count:
+        for line in latest_count.lines.filter(condition="damaged_unsellable").order_by("product_id"):
+            damaged_rows.append({
+                "sku": line.product_id,
+                "pieces": known(line.qty_pieces, latest_count.counted_at.strftime("%Y-%m"), kind,
+                                unit="pcs"),
+                "counted_at": latest_count.counted_at.isoformat(),
+                "evidence_ref": latest_count.evidence_ref,
+            })
+    if not damaged_rows:
+        reason = ("latest count has no damaged_unsellable lines" if latest_count else
+                  "no count exists by the report period end")
+        damaged_rows.append({
+            "sku": "ABSENT",
+            "pieces": absent(period, kind, reason, unit="pcs"),
+            "counted_at": "ABSENT",
+            "evidence_ref": "ABSENT",
+        })
+    sections = (
+        ReportSection("Inventory roll-forward", columns, rows),
+        ReportSection("Damaged pieces held (latest count)", damaged_columns, damaged_rows),
+    )
     return Report("inventory", "Inventory roll-forward", period, kind, columns, rows,
                   [f"G-3 reporting identity: {status}.",
-                   "Opening is never inferred from movements without a posted count. Unassigned packaging value prevents a SKU-to-GL tie."])
+                   "Opening is never inferred from movements without a posted count. Unassigned packaging value prevents a SKU-to-GL tie.",
+                   "Held pending the 記帳士. Do not destroy."], sections)
 
 
 REPORT_BUILDERS = {

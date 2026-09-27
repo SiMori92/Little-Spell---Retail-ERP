@@ -20,8 +20,9 @@ class OpeningScheduleTests(TestCase):
                 {"sku": "COUNT-A", "qty_pieces": "3", "agreed_unit_cost_twd": "12.5000",
                  "line_value_twd": "37.5000", "condition": "sellable"},
                 {"sku": "COUNT-Z", "qty_pieces": "0", "agreed_unit_cost_twd": "5.0000",
-                 "line_value_twd": "0.0000", "condition": "damaged_unsellable"},
+                 "line_value_twd": "0.0000", "condition": "sellable"},
             ],
+            "damaged_lines": [],
             "total_value_twd": "37.5000",
         }
 

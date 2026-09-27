@@ -411,6 +411,7 @@ def inventory_adjusted(e):
         raise PostingError("inventory adjustment qty_pieces is required")
     if not e.payload.get("evidence_ref") or not e.payload.get("sku"):
         raise PostingError("inventory adjustment needs count evidence, SKU and qty_pieces")
+    _validate_damaged_lines(e.payload.get("damaged_lines", []), "inventory adjustment")
     position = WacPosition.objects.select_for_update().filter(pk=e.payload["sku"]).first()
     qty = money(e.payload["qty_pieces"])
     if qty != qty.to_integral_value():
@@ -422,6 +423,28 @@ def inventory_adjusted(e):
         raise PostingError("inventory adjustment WAC changed since count intake; reconcile the source")
     return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value,
             sku=e.payload["sku"], qty_delta_pieces=-qty)]
+
+
+def _validate_damaged_lines(rows, label, sellable_skus=None):
+    if not isinstance(rows, list):
+        raise PostingError(f"{label} damaged_lines must be a list")
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("sku"):
+            raise PostingError(f"{label} damaged_lines needs nonblank SKUs")
+        sku = row["sku"]
+        if sku in seen:
+            raise PostingError(f"{label} damaged_lines repeats SKU {sku}")
+        seen.add(sku)
+        qty = money(required(row, "qty_pieces"))
+        if qty != qty.to_integral_value() or qty <= 0:
+            raise PostingError(
+                f"{label} damaged_unsellable {sku} qty_pieces must be positive whole pieces"
+            )
+        if sellable_skus is not None and sku not in sellable_skus:
+            raise PostingError(
+                f"{label} damaged_unsellable {sku} requires a sellable line for the same SKU"
+            )
 
 
 def opening_counted(e):
@@ -445,8 +468,8 @@ def opening_counted(e):
         if not isinstance(row, dict) or not row.get("sku") or row["sku"] in seen:
             raise PostingError("opening count needs unique, nonblank SKUs")
         seen.add(row["sku"])
-        if row.get("condition") not in {"sellable", "damaged_unsellable"}:
-            raise PostingError(f"opening count {row['sku']} has invalid condition")
+        if row.get("condition") != "sellable":
+            raise PostingError(f"opening count {row['sku']} lines must be sellable")
         qty = money(required(row, "qty_pieces"))
         if qty != qty.to_integral_value():
             raise PostingError(f"opening count {row['sku']} qty_pieces must be whole pieces")
@@ -458,6 +481,7 @@ def opening_counted(e):
         # The zero pair is evidence that this SKU was counted, not an omitted SKU.
         lines += [dr("1231", value, sku=row["sku"], qty_delta_pieces=qty),
                   cr("3111", value, sku=row["sku"] if not value else None)]
+    _validate_damaged_lines(payload.get("damaged_lines", []), "opening count", seen)
     if money(required(payload, "total_value_twd")) != money(total):
         raise PostingError("opening count total_value_twd disagrees with sum of lines")
     return lines
