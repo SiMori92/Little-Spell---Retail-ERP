@@ -348,9 +348,10 @@ def po_paid(e):
 
 
 def inventory_adjusted(e):
-    if (not e.payload.get("evidence_ref") or e.payload.get("qty_pieces") is None
-            or not e.payload.get("sku")):
-        raise PostingError("inventory adjustment needs count evidence, SKU and qty")
+    if e.payload.get("qty_pieces") is None:
+        raise PostingError("inventory adjustment qty_pieces is required")
+    if not e.payload.get("evidence_ref") or not e.payload.get("sku"):
+        raise PostingError("inventory adjustment needs count evidence, SKU and qty_pieces")
     position = WacPosition.objects.select_for_update().filter(pk=e.payload["sku"]).first()
     qty = money(e.payload["qty_pieces"])
     if qty != qty.to_integral_value():

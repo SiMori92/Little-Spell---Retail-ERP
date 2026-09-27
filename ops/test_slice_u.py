@@ -85,61 +85,64 @@ class UnitMigrationRefusalTests(TransactionTestCase):
     reset_sequences = True
     migrate_from = [("ops", "0010_igdeal_date_order"),
                     ("acct", "0006_remove_journalline_acct_line_one_side_and_more")]
-    migrate_to = [("acct", "0007_piece_inventory_unit")]
+    migrate_to = [("ops", "0011_piece_inventory_unit")]
 
-    def test_refuses_factor_data_and_actual_then_allows_factor_one_rows(self):
+    def setUp(self):
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
-        OldSettings = old_apps.get_model("core", "DatasetSettings")
-        OldProduct = old_apps.get_model("ops", "Product")
-        OldMove = old_apps.get_model("ops", "InventoryMove")
-        settings, _ = OldSettings.objects.get_or_create(pk=1, defaults={"dataset_kind": "SAMPLE"})
-        settings.dataset_kind = "SAMPLE"
-        settings.save(update_fields=["dataset_kind"])
-        product = OldProduct.objects.create(
+        self.old_apps = executor.loader.project_state(self.migrate_from).apps
+        self.OldSettings = self.old_apps.get_model("core", "DatasetSettings")
+        self.OldProduct = self.old_apps.get_model("ops", "Product")
+        self.OldMove = self.old_apps.get_model("ops", "InventoryMove")
+        self.settings, _ = self.OldSettings.objects.get_or_create(
+            pk=1, defaults={"dataset_kind": "SAMPLE"}
+        )
+        self.settings.dataset_kind = "SAMPLE"
+        self.settings.save(update_fields=["dataset_kind"])
+
+    def tearDown(self):
+        MigrationExecutor(connection).migrate(
+            MigrationExecutor(connection).loader.graph.leaf_nodes()
+        )
+        super().tearDown()
+
+    def test_factor_one_product_and_inventory_move_migrate_forward_in_place(self):
+        safe = self.OldProduct.objects.create(
+            sku="TS-FL-001-S", name="Safe factor one", uom="PK", pack_qty=1
+        )
+        self.OldMove.objects.create(
+            product=safe, kind="opening", qty_delta_packs=7, value_delta_twd=35,
+            occurred_at="2026-09-27T00:00:00Z", idempotency_key="migration-safe",
+            source_filename="SAMPLE_count.csv", dataset_kind="SAMPLE",
+        )
+        MigrationExecutor(connection).migrate(self.migrate_to)
+        new_apps = MigrationExecutor(connection).loader.project_state(self.migrate_to).apps
+        NewProduct = new_apps.get_model("ops", "Product")
+        NewMove = new_apps.get_model("ops", "InventoryMove")
+        migrated = NewProduct.objects.get(pk=safe.pk)
+        self.assertEqual(
+            (migrated.uom, migrated.pieces_per_sale_unit,
+             NewMove.objects.get(idempotency_key="migration-safe").qty_delta_pieces),
+            ("PC", 1, 7),
+        )
+
+    def test_factor_twelve_inventory_move_refuses_with_verbatim_i7_message(self):
+        product = self.OldProduct.objects.create(
             sku="TS-MN-006-P", name="Migration refusal", uom="PK", pack_qty=12
         )
-        OldMove.objects.create(
+        self.OldMove.objects.create(
             product=product, kind="opening", qty_delta_packs=1, value_delta_twd=10,
             occurred_at="2026-09-27T00:00:00Z", idempotency_key="migration-refusal",
             source_filename="SAMPLE_count.csv", dataset_kind="SAMPLE",
         )
-        try:
-            with self.assertRaisesRegex(
-                    RuntimeError,
-                    r"^Unit migration refused: SAMPLE data holds pack quantities for TS-MN-006-P\. "
-                    r"Reset the SAMPLE database and re-import the samples \(catalogue Addendum F\.4\)\.$"):
-                MigrationExecutor(connection).migrate(self.migrate_to)
-
-            OldMove.objects.all().delete()
-            OldProduct.objects.all().delete()
-            settings.dataset_kind = "ACTUAL"
-            settings.save(update_fields=["dataset_kind"])
-            with self.assertRaisesRegex(RuntimeError, "Unit migration refused: ACTUAL dataset rows exist"):
-                MigrationExecutor(connection).migrate(self.migrate_to)
-
-            settings.dataset_kind = "SAMPLE"
-            settings.save(update_fields=["dataset_kind"])
-            safe = OldProduct.objects.create(
-                sku="TS-FL-001-S", name="Safe factor one", uom="PK", pack_qty=1
-            )
-            OldMove.objects.create(
-                product=safe, kind="opening", qty_delta_packs=7, value_delta_twd=35,
-                occurred_at="2026-09-27T00:00:00Z", idempotency_key="migration-safe",
-                source_filename="SAMPLE_count.csv", dataset_kind="SAMPLE",
-            )
+        with self.assertRaisesRegex(
+                RuntimeError,
+                r"^Unit migration refused: SAMPLE data holds pack quantities for TS-MN-006-P\. "
+                r"Reset the SAMPLE database and re-import the samples \(catalogue Addendum F\.4\)\.$"):
             MigrationExecutor(connection).migrate(self.migrate_to)
-            new_apps = MigrationExecutor(connection).loader.project_state(self.migrate_to).apps
-            NewProduct = new_apps.get_model("ops", "Product")
-            NewMove = new_apps.get_model("ops", "InventoryMove")
-            self.assertEqual(
-                (NewProduct.objects.get(pk=safe.pk).uom,
-                 NewProduct.objects.get(pk=safe.pk).pieces_per_sale_unit,
-                 NewMove.objects.get(idempotency_key="migration-safe").qty_delta_pieces),
-                ("PC", 1, 7),
-            )
-        finally:
-            MigrationExecutor(connection).migrate(
-                MigrationExecutor(connection).loader.graph.leaf_nodes()
-            )
+
+    def test_actual_dataset_refuses_unconditionally(self):
+        self.settings.dataset_kind = "ACTUAL"
+        self.settings.save(update_fields=["dataset_kind"])
+        with self.assertRaisesRegex(RuntimeError, "Unit migration refused: ACTUAL dataset rows exist"):
+            MigrationExecutor(connection).migrate(self.migrate_to)

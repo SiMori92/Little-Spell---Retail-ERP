@@ -31,7 +31,6 @@ def refuse_unsafe_data(apps, schema_editor):
         )
     affected = set(Product.objects.exclude(pack_qty=1).values_list("sku", flat=True))
     if not affected:
-        Product.objects.update(uom="PC")
         return
 
     held = set()
@@ -67,6 +66,11 @@ def refuse_unsafe_data(apps, schema_editor):
 
     if held:
         raise RuntimeError(REFUSAL.format(skus=", ".join(sorted(held))))
+
+
+def rewrite_product_uom(apps, schema_editor):
+    """Run only after the old PK check has been removed."""
+    Product = apps.get_model("ops", "Product")
     Product.objects.update(uom="PC")
 
 
@@ -122,6 +126,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunPython(refuse_unsafe_data, migrations.RunPython.noop),
         migrations.RemoveConstraint("product", "ops_product_pack_uom"),
+        migrations.RunPython(rewrite_product_uom, migrations.RunPython.noop),
         migrations.RemoveConstraint("product", "ops_product_positive_pack_qty"),
         migrations.RemoveConstraint("igdeal", "ops_ig_deal_qty_positive"),
         migrations.RemoveConstraint("orderline", "ops_line_positive_qty"),
