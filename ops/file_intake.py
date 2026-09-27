@@ -362,6 +362,23 @@ def _optional_money(raw: str, field: str):
     return _money(raw, field) if raw.strip() else None
 
 
+def _refuse_ig_date_order(deal_id, enquiry_at, quoted_at, paid_at, ship_date, follow_up_on):
+    previous_field, previous_date = "enquiry_at", enquiry_at
+    for field, value in (("quoted_at", quoted_at), ("paid_at", paid_at),
+                         ("ship_date", ship_date)):
+        if value is None:
+            continue
+        if value < previous_date:
+            raise ImportRefused(
+                f"deal {deal_id}: {field} {value} is before {previous_field} {previous_date}"
+            )
+        previous_field, previous_date = field, value
+    if follow_up_on is not None and follow_up_on < enquiry_at:
+        raise ImportRefused(
+            f"deal {deal_id}: follow_up_on {follow_up_on} is before enquiry_at {enquiry_at}"
+        )
+
+
 def _ig_row(row: dict, columns) -> dict:
     refuse_pii(row, columns)
     evidence = _required(row, "evidence_ref")
@@ -421,6 +438,9 @@ def _ig_row(row: dict, columns) -> dict:
     ship_date = _optional_date(row["ship_date"], "ship_date")
     if shipped_or_later and ship_date is None:
         raise ImportRefused(f"deal {deal_id} ship_date is required from shipped onward")
+    _refuse_ig_date_order(
+        deal_id, enquiry_at, quoted_at, paid_at, ship_date, follow_up,
+    )
     consent = row["consent_marketing"].strip()
     if consent not in {"", "yes", "no"}:
         raise ImportRefused(f"deal {deal_id} consent_marketing must be yes, no or blank")

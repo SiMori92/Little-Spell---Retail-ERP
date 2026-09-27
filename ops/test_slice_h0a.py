@@ -1,11 +1,12 @@
 """Slice H-0a tests use opaque synthetic references and never print customer rows."""
 
 import csv
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -86,6 +87,45 @@ class InstagramDealTests(TestCase):
         with self.assertRaises(DatabaseError), transaction.atomic():
             IgDeal.objects.update(follow_up_on="2026-10-11")
 
+    def test_each_broken_date_order_names_both_fields(self):
+        cases = (
+            ("quoted", {"quoted_at": "2026-09-30"},
+             "quoted_at 2026-09-30 is before enquiry_at 2026-10-01"),
+            ("paid", {"paid_at": "2026-10-01"},
+             "paid_at 2026-10-01 is before quoted_at 2026-10-02"),
+            ("shipped", {"ship_date": "2026-10-02"},
+             "ship_date 2026-10-02 is before paid_at 2026-10-03"),
+            ("quoted", {"follow_up_on": "2026-09-30"},
+             "follow_up_on 2026-09-30 is before enquiry_at 2026-10-01"),
+        )
+        for index, (status, changes, message) in enumerate(cases):
+            with self.subTest(message=message):
+                row = self.one(status, deal_id=f"IG-202610-{140 + index:03d}", **changes)
+                with self.assertRaisesRegex(ImportRefused, f"deal {row['deal_id']}: {message}"):
+                    import_ig_deals(self.source([row]))
+
+    def test_database_check_refuses_broken_date_order(self):
+        row = self.one("paid", deal_id="IG-202610-150", wallet_txn_id="date-check")
+        import_ig_deals(self.source([row]), commit=True)
+        IgDealStatus.objects.create(
+            deal_id=row["deal_id"], status="shipped", effective_on=date(2026, 10, 4),
+            source_filename="SAMPLE_ig_deals_2026-10.csv", dataset_kind="SAMPLE",
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            IgDeal.objects.filter(deal_id=row["deal_id"]).update(
+                status="shipped", ship_date=date(2026, 10, 2),
+            )
+
+    def test_same_day_milestones_are_accepted(self):
+        row = self.one(
+            "shipped", deal_id="IG-202610-151", wallet_txn_id="same-day",
+            enquiry_at="2026-10-01", quoted_at="2026-10-01",
+            paid_at="2026-10-01", ship_date="2026-10-01",
+        )
+        import_ig_deals(self.source([row]), commit=True)
+        self.assertEqual(IgDeal.objects.get(deal_id=row["deal_id"]).ship_date,
+                         date(2026, 10, 1))
+
     def test_backward_and_out_of_lost_are_refused(self):
         for index, (initial, later) in enumerate(
                 (("paid", "enquiry"), ("shipped", "quoted"), ("lost", "enquiry"))):
@@ -154,6 +194,8 @@ class InstagramDealTests(TestCase):
         follow, journey, conversion = pipeline.sections
         self.assertEqual(len(follow.rows), 3)
         self.assertEqual([row["step"] for row in journey.rows], ["d10", "d30"])
+        d30 = next(row for row in journey.rows if row["step"] == "d30")
+        self.assertEqual((d30["due_on"], d30["days"].amount), ("2026-11-07", 8))
         self.assertTrue(all(row["customer_ref"] != "C-0006" for row in journey.rows))
         october = next(row for row in conversion.rows if row["month"] == "2026-10")
         self.assertEqual((october["enquiries"].amount, october["quoted"].amount,
