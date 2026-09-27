@@ -6,7 +6,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.contrib import admin
-from django.test import TestCase
+from django.db import IntegrityError, connection, transaction
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 
 from acct.models import JournalLine
 from core.models import DatasetSettings
@@ -136,3 +138,65 @@ class SliceG0Tests(TestCase):
         with patch("ops.file_intake.load_schema", return_value=fixture), self.assertRaisesRegex(
                 ImportRefused, "suppliers schema fixture must have source authored"):
             manifest("suppliers")
+
+
+class ComplianceFailClosedTests(TransactionTestCase):
+    migrate_from = ("ops", "0007_supplier_product_compliance")
+    migrate_to = ("ops", "0008_product_supplier_compliance_ref_shape")
+    sku = "TS-FL-001-S"
+    valid_ingredient = "compliance/suppliers/ingredients.pdf"
+    valid_declaration = "compliance/suppliers/declaration.pdf"
+    invalid_ingredients = ("", "unknown", "TBD", "pending", "compliance/suppliers/")
+
+    def _restore_latest_schema(self):
+        Product.objects.filter(pk=self.sku).update(ingredient_ref=self.valid_ingredient)
+        Supplier.objects.filter(supplier_ref="SUP-001").update(
+            declaration_ref=self.valid_declaration)
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_guard_and_database_constraints_fail_closed(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate([self.migrate_from])
+        old_apps = executor.loader.project_state([self.migrate_from]).apps
+        OldSupplier = old_apps.get_model("ops", "Supplier")
+        OldProduct = old_apps.get_model("ops", "Product")
+        supplier = OldSupplier.objects.create(
+            supplier_ref="SUP-001", legal_name="Synthetic Supplier", country="TW",
+            currency="TWD", default_incoterm="EXW", payment_terms="Prepaid",
+            can_invoice_to_tax_id="unknown", declaration_ref=self.valid_declaration,
+            evidence_ref="synthetic", source_filename="SAMPLE_suppliers.csv",
+            dataset_kind="SAMPLE",
+        )
+        OldProduct.objects.create(
+            sku=self.sku, name="Synthetic Product", uom="PK", pack_qty=1,
+            supplier=supplier, ingredient_ref=self.valid_ingredient,
+        )
+        self.addCleanup(self._restore_latest_schema)
+
+        for invalid in self.invalid_ingredients:
+            with self.subTest(guard_value=invalid):
+                OldProduct.objects.filter(pk=self.sku).update(ingredient_ref=invalid)
+                with self.assertRaisesRegex(PoBlocked, self.sku):
+                    assert_po_eligible([self.sku])
+                OldProduct.objects.filter(pk=self.sku).update(
+                    ingredient_ref=self.valid_ingredient)
+
+        OldSupplier.objects.filter(pk=supplier.pk).update(
+            declaration_ref="compliance/suppliers/")
+        with self.assertRaisesRegex(PoBlocked, self.sku):
+            assert_po_eligible([self.sku])
+        OldSupplier.objects.filter(pk=supplier.pk).update(
+            declaration_ref=self.valid_declaration)
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([self.migrate_to])
+
+        for invalid in self.invalid_ingredients:
+            with self.subTest(check_value=invalid), self.assertRaises(IntegrityError):
+                with transaction.atomic():
+                    Product.objects.filter(pk=self.sku).update(ingredient_ref=invalid)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Supplier.objects.filter(pk=supplier.pk).update(
+                    declaration_ref="compliance/suppliers/")

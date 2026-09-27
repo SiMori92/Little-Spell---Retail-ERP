@@ -29,6 +29,12 @@ class Supplier(Provenance):
         constraints = [
             models.UniqueConstraint(fields=["dataset_kind", "supplier_ref"],
                                     name="ops_supplier_dataset_ref"),
+            models.CheckConstraint(
+                condition=(Q(declaration_ref="") |
+                           (Q(declaration_ref__startswith="compliance/suppliers/") &
+                            ~Q(declaration_ref="compliance/suppliers/"))),
+                name="ops_supplier_declaration_ref_shape",
+            ),
         ]
 
 
@@ -44,6 +50,12 @@ class Product(models.Model):
         constraints = [
             models.CheckConstraint(condition=Q(uom="PK"), name="ops_product_pack_uom"),
             models.CheckConstraint(condition=Q(pack_qty__isnull=True) | Q(pack_qty__gt=0), name="ops_product_positive_pack_qty"),
+            models.CheckConstraint(
+                condition=(Q(ingredient_ref="UNKNOWN") |
+                           (Q(ingredient_ref__startswith="compliance/suppliers/") &
+                            ~Q(ingredient_ref="compliance/suppliers/"))),
+                name="ops_product_ingredient_ref_shape",
+            ),
         ]
 
 
