@@ -6,7 +6,7 @@ from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, GoodsRec
                         IgDealStatus, InventoryMove, LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
                         ProductComplianceChange, PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus,
                         Receipt, Shipment, StockCount, StockCountLine, Supplier, SupplierChange,
-                        SupplierInvoice, SupplierInvoiceLine)
+                        SupplierInvoice, SupplierInvoiceLine, SupplierPayment)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -147,6 +147,14 @@ class SupplierInvoiceLineAdmin(ReadOnlyAdmin):
                     "setup_charge_twd", "line_amount_twd")
     list_filter = ("invoice__po__supplier", "product", "dataset_kind")
     search_fields = ("invoice__invoice_no", "invoice__po__po_number", "product__sku")
+
+
+@admin.register(SupplierPayment)
+class SupplierPaymentAdmin(ReadOnlyAdmin):
+    list_display = ("payment_ref", "paid_on", "supplier", "po", "invoice", "payment_kind", "amount_twd",
+                    "bank_account", "dataset_kind")
+    list_filter = ("payment_kind", "paid_on", "supplier", "dataset_kind")
+    search_fields = ("payment_ref", "po__po_number", "invoice__invoice_no", "bank_ref", "evidence_ref")
 
 
 @admin.register(Channel)

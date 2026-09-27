@@ -452,8 +452,7 @@ class TaxTests(ReceivingBase):
         invoice = SupplierInvoice.objects.get()
         for name, changes in (("ops_invoice_creditable_within_tax", {"tax_creditable_twd": D("9999"),
                                                                       "gui_no": "AB12345678"}),
-                              ("ops_invoice_creditable_needs_gui", {"tax_creditable_twd": D("1")}),
-                              ("ops_invoice_no_deposit_before_g3", {"deposit_applied_twd": D("1")})):
+                              ("ops_invoice_creditable_needs_gui", {"tax_creditable_twd": D("1")})):
             with self.subTest(name=name), self.assertRaisesRegex(IntegrityError, name), transaction.atomic():
                 SupplierInvoice.objects.create(**{**{f.attname: getattr(invoice, f.attname)
                                                      for f in SupplierInvoice._meta.concrete_fields
@@ -549,9 +548,15 @@ class DeliveryTests(ReceivingBase):
 
 
 class DepositTests(ReceivingBase):
-    def test_a_deposit_is_refused_naming_g3(self):
-        self.refused(r"^INV EP-2026-0129 deposit_applied_twd must be 0; supplier deposits arrive with G-3$",
-                     lambda: self.inv(self.inv_rows(deposit_applied_twd="1000.0000")))
+    def test_g3_records_invoice_stated_deposit_without_posting_it(self):
+        # Touched in G-3: G-2's temporary refusal is intentionally lifted by Addendum H.2.
+        self.sample_grn()
+        self.inv(self.inv_rows(deposit_applied_twd="1000.0000"))
+        invoice = SupplierInvoice.objects.get(invoice_no="EP-2026-0129")
+        event = LedgerEvent.objects.get(payload__invoice_no="EP-2026-0129")
+        self.assertEqual(invoice.deposit_applied_twd, D("1000.0000"))
+        self.assertEqual(event.payload["invoice_stated_deposit_twd"], "1000.0000")
+        self.assertEqual(event.payload["deposit_applied_twd"], "0.0000")
 
 
 class IdempotencyTests(ReceivingBase):
@@ -663,7 +668,7 @@ class DatabaseEnforcementTests(ReceivingBase):
         with self.assertRaisesRegex(RuntimeError, "append-only"):
             GoodsReceipt.objects.get().save()
 
-    def test_received_is_reached_only_when_every_line_is_received_and_is_terminal(self):
+    def test_received_is_reached_only_when_every_line_is_received_and_only_moves_to_closed(self):
         po = PurchaseOrder.objects.get(po_number="PO-2026-004")
         PurchaseOrderStatus.objects.create(po_number="PO-2026-004", status="received", effective_on="2026-02-14",
                                            source_filename="synthetic", dataset_kind="SAMPLE")
@@ -677,7 +682,8 @@ class DatabaseEnforcementTests(ReceivingBase):
         self.sample_grn()
         self.sample_inv()
         received = PurchaseOrder.objects.get(po_number="PO-2026-003")
-        self.refused_sql("is received; nothing leaves received",
+        # Touched in G-3: received is no longer terminal, but its only forward move is closed.
+        self.refused_sql("is received; it may move only to closed",
                          "UPDATE ops_purchaseorder SET payment_terms = 'x' WHERE id = %s", [received.pk])
 
     def test_a_document_line_must_belong_to_its_own_po(self):

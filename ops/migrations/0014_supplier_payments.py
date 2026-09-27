@@ -36,6 +36,9 @@ BEGIN
         IF OLD.status IN ('cancelled', 'closed') THEN
             RAISE EXCEPTION 'ops_purchaseorder % is %; nothing leaves %', OLD.po_number, OLD.status, OLD.status;
         END IF;
+        IF OLD.status IN ('received', 'short_closed') AND NEW.status <> 'closed' THEN
+            RAISE EXCEPTION 'ops_purchaseorder % is %; it may move only to closed', OLD.po_number, OLD.status;
+        END IF;
         IF NEW.po_number IS DISTINCT FROM OLD.po_number OR NEW.dataset_kind IS DISTINCT FROM OLD.dataset_kind THEN
             RAISE EXCEPTION 'ops_purchaseorder po_number and dataset_kind cannot change';
         END IF;
