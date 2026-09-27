@@ -401,6 +401,8 @@ class ImportControlTests(TestCase):
         order = self.make_order("event-matrix", status="shipped")
         Shipment.objects.create(order=order, status="dispatched", ship_date=when.date(),
                                 source_filename="SAMPLE_test", dataset_kind="SAMPLE")
+        # Touched in R-2.1: a counted SKU must be a product; its product_type picks 1231 or 1233.
+        Product.objects.create(sku="SYNTHETIC", name="SYNTHETIC", uom="PC", pieces_per_sale_unit=1)
         for index, event_type in enumerate(OPS_EVENT_TYPES):
             payload = {"evidence_ref": "synthetic-evidence", "discount_funded_by": "none"}
             if event_type == "inventory.opening_counted":
