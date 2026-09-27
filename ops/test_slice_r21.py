@@ -81,6 +81,12 @@ class PackagingCountTests(TestCase):
                           D(rows[PKG]["ops_twd"]), D(rows[PKG]["gl_twd"])),
                          (D(pkg_pieces), D(pkg_pieces), D(pkg_value), D(pkg_value)))
         self.assertGreater(D(rows[PKG]["gl_twd"]), 0)
+        # G-3 nets 1231+1232+1233, so it would tie on 1231 too: the value must be on 1233.
+        on_1233 = JournalLine.objects.filter(account_id="1233", sku=PKG).aggregate(
+            qty=Sum("qty_delta_pieces"), debit=Sum("debit"), credit=Sum("credit"))
+        self.assertEqual((on_1233["qty"] or D(0), (on_1233["debit"] or D(0)) - (on_1233["credit"] or D(0))),
+                         (D(pkg_pieces), D(pkg_value)))
+        self.assertFalse(JournalLine.objects.filter(account_id="1231", sku=PKG).exists())
 
     def test_i1_opening_count_debits_1233_for_packaging_and_1231_for_sellable(self):
         event, entry = self.open_books()
