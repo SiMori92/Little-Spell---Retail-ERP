@@ -1,1 +1,1 @@
-deal_id,line_no,customer_ref,status,enquiry_at,quoted_at,quote_twd,follow_up_on,lost_reason,sku,qty_packs,unit_price_twd,shipping_charged_twd,ship_country,paid_at,wallet_txn_id,ship_date,consent_marketing,journey_sent,evidence_ref
+deal_id,line_no,customer_ref,status,enquiry_at,quoted_at,quote_twd,follow_up_on,lost_reason,sku,qty_sale_units,unit_price_twd,shipping_charged_twd,ship_country,paid_at,wallet_txn_id,ship_date,consent_marketing,journey_sent,evidence_ref

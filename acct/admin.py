@@ -30,7 +30,7 @@ class PeriodAdmin(ReadOnlyAdmin):
 
 @admin.register(WacPosition)
 class WacPositionAdmin(ReadOnlyAdmin):
-    list_display = ("sku", "qty_packs", "value_twd")
+    list_display = ("sku", "qty_pieces", "value_twd")
     search_fields = ("sku",)
 
 
@@ -43,7 +43,7 @@ class JournalEntryAdmin(ReadOnlyAdmin):
 
 @admin.register(JournalLine)
 class JournalLineAdmin(ReadOnlyAdmin):
-    list_display = ("entry_id", "account_id", "sku", "debit", "credit", "qty_delta_packs")
+    list_display = ("entry_id", "account_id", "sku", "debit", "credit", "qty_delta_pieces")
     list_filter = ("account", "entry__period")
     search_fields = ("entry__source_ref", "account__code", "sku")
 

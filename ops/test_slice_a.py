@@ -43,9 +43,9 @@ class ImportControlTests(TestCase):
     def setUpTestData(cls):
         Channel.objects.create(code="etsy", name="Etsy")
         for sku in ("TS-FL-001-S", "TS-HN-007-M", "TS-SL-003-L", "TS-FS-004-P"):
-            Product.objects.create(sku=sku, name=sku, uom="PK")
+            Product.objects.create(sku=sku, name=sku, uom="PC", pieces_per_sale_unit=1)
             InventoryMove.objects.create(
-                product_id=sku, kind="opening", qty_delta_packs=100,
+                product_id=sku, kind="opening", qty_delta_pieces=100,
                 occurred_at=datetime(2025, 12, 1, tzinfo=ZoneInfo("Asia/Taipei")),
                 idempotency_key=f"opening|{sku}", source_filename="SAMPLE_count",
                 dataset_kind="SAMPLE",
@@ -202,19 +202,64 @@ class ImportControlTests(TestCase):
         self.assertEqual((plain["gross"], plain["buyer_paid"], sales["2918473022"]),
                          (3149, 3149, 3149))
 
-    def test_on_hand_is_view_over_signed_pack_movements(self):
+    def test_pre_u_sample_economics_snapshot_is_identical_in_pieces(self):
+        order_path, statement_path = self.paths()
+        orders = _orders(
+            _read_csv(order_path, "orderitems"),
+            {"WELCOME10": "seller", "HOLIDAY15": "seller", "FREESHIP": "seller"},
+            ImportResult(),
+        )
+        fees = {order_id: Decimal(0) for order_id in orders}
+        for row in _read_csv(statement_path, "statement"):
+            if row["Type"] in {"Transaction Fee", "Processing Fee", "Offsite Ads Fee",
+                               "Regulatory Operating Fee"}:
+                order_id = row["Info"].split("#", 1)[1].split()[0]
+                fees[order_id] += abs(Decimal(row["Fees & Taxes"]))
+        factors = {"TS-FL-001-S": 1, "TS-SL-003-L": 1, "TS-HN-007-M": 2,
+                   "TS-FS-004-P": 5}
+        old_cost_per_sale_unit = {"TS-FL-001-S": Decimal("5"),
+                                  "TS-SL-003-L": Decimal("10"),
+                                  "TS-HN-007-M": Decimal("20"),
+                                  "TS-FS-004-P": Decimal("25")}
+        before = {}
+        after = {}
+        for order_id, order in orders.items():
+            old_cogs = sum(old_cost_per_sale_unit[line["sku"]] * line["qty"]
+                           for line in order["lines"])
+            new_cogs = sum(
+                (old_cost_per_sale_unit[line["sku"]] / factors[line["sku"]])
+                * (line["qty"] * factors[line["sku"]])
+                for line in order["lines"]
+            )
+            revenue = Decimal(order["gross"]) / 100
+            discount = Decimal(order["discount"]) / 100
+            before[order_id] = (revenue, fees[order_id], old_cogs,
+                                revenue - discount - fees[order_id] - old_cogs)
+            after[order_id] = (revenue, fees[order_id], new_cogs,
+                               revenue - discount - fees[order_id] - new_cogs)
+        snapshot_before_u = {
+            "2918473019": (Decimal("30.97"), Decimal("3.19"), Decimal("10"), Decimal("15.18")),
+            "2918473022": (Decimal("31.49"), Decimal("7.03"), Decimal("10"), Decimal("14.46")),
+            "2918473035": (Decimal("17.49"), Decimal("0"), Decimal("20"), Decimal("-4.31")),
+            "2918473050": (Decimal("22.49"), Decimal("0.18"), Decimal("25"), Decimal("-2.69")),
+            "2918473062": (Decimal("44.47"), Decimal("0"), Decimal("15"), Decimal("23.97")),
+        }
+        self.assertEqual(before, snapshot_before_u)
+        self.assertEqual(after, snapshot_before_u)
+
+    def test_on_hand_is_view_over_signed_piece_movements(self):
         sku = "TS-HN-007-M"
         InventoryMove.objects.create(
-            product_id=sku, kind="sold", qty_delta_packs=-3,
+            product_id=sku, kind="sold", qty_delta_pieces=-3,
             occurred_at=datetime(2025, 12, 2, tzinfo=ZoneInfo("Asia/Taipei")),
             idempotency_key="sold|synthetic", source_filename="SAMPLE_test", dataset_kind="SAMPLE",
         )
         InventoryMove.objects.create(
-            product_id=sku, kind="received", qty_delta_packs=2,
+            product_id=sku, kind="received", qty_delta_pieces=2,
             occurred_at=datetime(2025, 12, 3, tzinfo=ZoneInfo("Asia/Taipei")),
             idempotency_key="received|synthetic", source_filename="SAMPLE_test", dataset_kind="SAMPLE",
         )
-        self.assertEqual(OnHand.objects.get(sku=sku).qty_packs, 100 - 3 + 2)
+        self.assertEqual(OnHand.objects.get(sku=sku).qty_pieces, 100 - 3 + 2)
         self.assertFalse(any(f.name in {"on_hand", "quantity_on_hand"} for f in Product._meta.fields))
 
     def test_revenue_emission_requires_ship_date_even_for_direct_sql(self):
@@ -290,7 +335,7 @@ class ImportControlTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 InventoryMove.objects.create(
-                    product_id="TS-HN-007-M", kind="sold", qty_delta_packs=1,
+                    product_id="TS-HN-007-M", kind="sold", qty_delta_pieces=1,
                     occurred_at=datetime(2025, 12, 3, tzinfo=ZoneInfo("Asia/Taipei")),
                     idempotency_key="bad-sign", source_filename="SAMPLE_test", dataset_kind="SAMPLE",
                 )
@@ -360,7 +405,7 @@ class ImportControlTests(TestCase):
             payload = {"evidence_ref": "synthetic-evidence", "discount_funded_by": "none"}
             if event_type == "inventory.opening_counted":
                 payload.update({"counted_at": "2025-12-03", "lines": [
-                    {"sku": "SYNTHETIC", "qty_packs": "1", "agreed_unit_cost_twd": "1",
+                    {"sku": "SYNTHETIC", "qty_pieces": "1", "agreed_unit_cost_twd": "1",
                      "line_value_twd": "1", "condition": "sellable"}], "total_value_twd": "1"})
             self.assertTrue(emit_event(
                 event_type=event_type, entity_table="ops.order", entity_id=order.pk,

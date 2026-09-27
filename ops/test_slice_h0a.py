@@ -46,12 +46,12 @@ class InstagramDealTests(TestCase):
         row = {"deal_id": "IG-202610-101", "line_no": "1", "customer_ref": "C-0101",
                "status": status, "enquiry_at": "2026-10-01", "quoted_at": "2026-10-02",
                "quote_twd": "300.0000", "follow_up_on": "2026-10-10", "lost_reason": "",
-               "sku": "", "qty_packs": "", "unit_price_twd": "",
+               "sku": "", "qty_sale_units": "", "unit_price_twd": "",
                "shipping_charged_twd": "", "ship_country": "", "paid_at": "",
                "wallet_txn_id": "", "ship_date": "", "consent_marketing": "",
                "journey_sent": "none", "evidence_ref": "instagram/deals/evidence-one"}
         if status in {"paid", "shipped", "followed_up"}:
-            row.update({"follow_up_on": "", "sku": "TS-FL-001-S", "qty_packs": "1",
+            row.update({"follow_up_on": "", "sku": "TS-FL-001-S", "qty_sale_units": "1",
                         "unit_price_twd": "300.0000", "shipping_charged_twd": "0.0000",
                         "ship_country": "TW", "paid_at": "2026-10-03", "wallet_txn_id": "88101"})
         if status in {"shipped", "followed_up"}:
@@ -138,7 +138,7 @@ class InstagramDealTests(TestCase):
                     import_ig_deals(self.source([changed]), commit=True)
 
     def test_paid_fields_are_immutable(self):
-        cases = {"quote_twd": "301.0000", "sku": "TS-GM-002-S", "qty_packs": "2",
+        cases = {"quote_twd": "301.0000", "sku": "TS-GM-002-S", "qty_sale_units": "2",
                  "unit_price_twd": "301.0000", "wallet_txn_id": "88102"}
         for field, value in cases.items():
             with self.subTest(field=field):

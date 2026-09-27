@@ -24,6 +24,7 @@ class IntakeManifest:
     key_from: Callable[[dict], str] | None = None
     payload_builders: Mapping[str, Callable[..., dict]] = field(default_factory=dict)
     sample_filename: re.Pattern[str] | None = None
+    version: int = 1
 
     def payload_for(self, event_type: str, **context) -> dict:
         if event_type not in self.events or event_type not in self.payload_builders:
@@ -59,11 +60,21 @@ def read_csv(path: Path, manifest: IntakeManifest) -> list[dict]:
                                              if mask & (1 << i)]
                                  for mask in range(1 << len(manifest.optional_columns))]
             if observed not in expected_variants:
+                legacy = {
+                    "products": ("pack_qty", "pieces_per_sale_unit"),
+                    "counts": ("qty_packs", "qty_pieces"),
+                    "ig_deals": ("qty_packs", "qty_sale_units"),
+                }.get(manifest.kind)
+                if manifest.version == 2 and legacy and legacy[0] in observed:
+                    raise ImportRefused(
+                        f"{manifest.kind} file uses header v1 ({legacy[0]}); "
+                        f"v2 requires {legacy[1]}"
+                    )
                 all_expected = set(required + list(manifest.optional_columns))
                 missing = sorted(set(required) - set(observed))
                 added = sorted(set(observed) - all_expected)
                 raise ImportRefused(
-                    f"Header mismatch in {path.name}; expected {manifest.kind} v1 exact columns; "
+                    f"Header mismatch in {path.name}; expected {manifest.kind} v{manifest.version} exact columns; "
                     f"missing={missing}; added={added}; order_changed={not missing and not added}"
                 )
             rows = list(reader)

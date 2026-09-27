@@ -31,8 +31,9 @@ Slice 0 build instruction.
 6. Revenue is recognised at DISPATCH, evidenced by a ship_date on the shipment row.
    order.placed debits the rail and credits 2211 deferred revenue. It NEVER credits revenue.
 
-7. uom = PK (pack) for every SKU. Pack_Qty is a product attribute, never a quantity
-   multiplier. Quantities everywhere are in packs.
+7. Superseded by Catalogue Addendum F (v1.6): `uom = PC` for every SKU.
+   `pieces_per_sale_unit` is the only conversion. Inventory quantities are pieces;
+   `OrderLine` and `ig_deals` quantities are sale units.
 
 8. Reporting and functional currency is TWD. USD transactions are recorded, not converted
    at entry. Realised FX to 7111, unrealised to 7112.

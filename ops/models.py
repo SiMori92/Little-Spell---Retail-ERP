@@ -41,15 +41,16 @@ class Supplier(Provenance):
 class Product(models.Model):
     sku = models.CharField(max_length=20, primary_key=True)
     name = models.CharField(max_length=100)
-    uom = models.CharField(max_length=2, default="PK")
-    pack_qty = models.PositiveIntegerField(null=True, blank=True)
+    uom = models.CharField(max_length=2, default="PC")
+    pieces_per_sale_unit = models.PositiveIntegerField()
     supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT)
     ingredient_ref = models.CharField(max_length=255, default="UNKNOWN")
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(uom="PK"), name="ops_product_pack_uom"),
-            models.CheckConstraint(condition=Q(pack_qty__isnull=True) | Q(pack_qty__gt=0), name="ops_product_positive_pack_qty"),
+            models.CheckConstraint(condition=Q(uom="PC"), name="ops_product_piece_uom"),
+            models.CheckConstraint(condition=Q(pieces_per_sale_unit__gte=1),
+                                   name="ops_product_positive_pieces_per_sale_unit"),
             models.CheckConstraint(
                 condition=(Q(ingredient_ref="UNKNOWN") |
                            (Q(ingredient_ref__startswith="compliance/suppliers/") &
@@ -89,7 +90,7 @@ class IgDeal(Provenance):
     follow_up_on = models.DateField(null=True, blank=True)
     lost_reason = models.CharField(max_length=24, blank=True, default="")
     product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.PROTECT)
-    qty_packs = models.PositiveIntegerField(null=True, blank=True)
+    qty_sale_units = models.PositiveIntegerField(null=True, blank=True)
     unit_price_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
     shipping_charged_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
     ship_country = models.CharField(max_length=2, blank=True, default="")
@@ -107,7 +108,7 @@ class IgDeal(Provenance):
             models.CheckConstraint(condition=Q(line_no__gte=1), name="ops_ig_deal_line_positive"),
             models.CheckConstraint(condition=Q(quote_twd__isnull=True) | Q(quote_twd__gt=0),
                                    name="ops_ig_deal_quote_positive"),
-            models.CheckConstraint(condition=Q(qty_packs__isnull=True) | Q(qty_packs__gt=0),
+            models.CheckConstraint(condition=Q(qty_sale_units__isnull=True) | Q(qty_sale_units__gt=0),
                                    name="ops_ig_deal_qty_positive"),
             models.CheckConstraint(condition=Q(unit_price_twd__isnull=True) | Q(unit_price_twd__gt=0),
                                    name="ops_ig_deal_price_positive"),
@@ -193,16 +194,16 @@ class OrderLine(Provenance):
     platform_transaction_id = models.CharField(max_length=64, unique=True)
     listing_id = models.CharField(max_length=64, blank=True, default="")
     line_index = models.PositiveIntegerField()
-    qty_packs = models.PositiveIntegerField()
+    qty_sale_units = models.PositiveIntegerField()
     unit_price_minor = models.BigIntegerField()
     line_discount_minor = models.BigIntegerField()
     item_total_minor = models.BigIntegerField()
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=Q(qty_packs__gt=0), name="ops_line_positive_qty"),
+            models.CheckConstraint(condition=Q(qty_sale_units__gt=0), name="ops_line_positive_qty"),
             models.CheckConstraint(condition=Q(unit_price_minor__gte=0, line_discount_minor__gte=0, item_total_minor__gte=0), name="ops_line_nonnegative_money"),
-            models.CheckConstraint(condition=Q(item_total_minor=models.F("qty_packs") * models.F("unit_price_minor") - models.F("line_discount_minor")), name="ops_line_total_identity"),
+            models.CheckConstraint(condition=Q(item_total_minor=models.F("qty_sale_units") * models.F("unit_price_minor") - models.F("line_discount_minor")), name="ops_line_total_identity"),
         ]
 
 
@@ -227,16 +228,16 @@ class InventoryMove(Provenance):
 
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     kind = models.CharField(max_length=20, choices=Kind.choices)
-    qty_delta_packs = models.IntegerField()
+    qty_delta_pieces = models.IntegerField()
     value_delta_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
     occurred_at = models.DateTimeField()
     idempotency_key = models.CharField(max_length=255, unique=True)
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=~Q(qty_delta_packs=0) | Q(kind="opening", value_delta_twd=0), name="ops_move_nonzero"),
-            models.CheckConstraint(condition=(Q(kind="opening", qty_delta_packs__gte=0) | Q(kind__in=["received", "returned"], qty_delta_packs__gt=0) | Q(kind__in=["sold", "written_off"], qty_delta_packs__lt=0) | Q(kind="adjusted", qty_delta_packs__lt=0)), name="ops_move_sign_discipline"),
-            models.CheckConstraint(condition=Q(value_delta_twd__isnull=True) | (Q(qty_delta_packs__gt=0, value_delta_twd__gte=0) | Q(qty_delta_packs__lt=0, value_delta_twd__lte=0) | Q(kind="opening", qty_delta_packs=0, value_delta_twd=0)), name="ops_move_value_sign"),
+            models.CheckConstraint(condition=~Q(qty_delta_pieces=0) | Q(kind="opening", value_delta_twd=0), name="ops_move_nonzero"),
+            models.CheckConstraint(condition=(Q(kind="opening", qty_delta_pieces__gte=0) | Q(kind__in=["received", "returned"], qty_delta_pieces__gt=0) | Q(kind__in=["sold", "written_off"], qty_delta_pieces__lt=0) | Q(kind="adjusted", qty_delta_pieces__lt=0)), name="ops_move_sign_discipline"),
+            models.CheckConstraint(condition=Q(value_delta_twd__isnull=True) | (Q(qty_delta_pieces__gt=0, value_delta_twd__gte=0) | Q(qty_delta_pieces__lt=0, value_delta_twd__lte=0) | Q(kind="opening", qty_delta_pieces=0, value_delta_twd=0)), name="ops_move_value_sign"),
         ]
 
 
@@ -332,7 +333,7 @@ class StockCount(Provenance):
 class StockCountLine(Provenance):
     count = models.ForeignKey(StockCount, related_name="lines", on_delete=models.PROTECT)
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
-    qty_packs = models.PositiveIntegerField()
+    qty_pieces = models.PositiveIntegerField()
     agreed_unit_cost_twd = models.DecimalField(max_digits=18, decimal_places=4)
     line_value_twd = models.DecimalField(max_digits=18, decimal_places=4)
     condition = models.CharField(max_length=20, choices=[("sellable", "Sellable"),
@@ -360,7 +361,7 @@ class OnHand(models.Model):
     """Read-only view; never stores on-hand quantities."""
 
     sku = models.CharField(max_length=20, primary_key=True)
-    qty_packs = models.BigIntegerField()
+    qty_pieces = models.BigIntegerField()
 
     class Meta:
         managed = False

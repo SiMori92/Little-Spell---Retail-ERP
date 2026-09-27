@@ -1,0 +1,9 @@
+{
+  "kind": "ig_deals",
+  "source": "authored",
+  "verified": true,
+  "header": ["deal_id", "line_no", "customer_ref", "status", "enquiry_at", "quoted_at", "quote_twd", "follow_up_on", "lost_reason", "sku", "qty_sale_units", "unit_price_twd", "shipping_charged_twd", "ship_country", "paid_at", "wallet_txn_id", "ship_date", "consent_marketing", "journey_sent", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_ig_deals_2026-10.csv",
+  "actual_filename_pattern": "ig_deals_YYYY-MM.csv"
+}

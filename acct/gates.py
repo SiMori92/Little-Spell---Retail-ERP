@@ -144,21 +144,21 @@ def g3(period):
         opening_moves = [move for move in sku_moves if move.kind == "opening"]
         if not count or len(opening_moves) != 1:
             gaps.append(f"{sku}: posted opening count and move missing")
-        elif Decimal(str(count[1]["qty_packs"])) != Decimal(opening_moves[0].qty_delta_packs):
+        elif Decimal(str(count[1]["qty_pieces"])) != Decimal(opening_moves[0].qty_delta_pieces):
             gaps.append(f"{sku}: opening count quantity disagrees with sourced move")
         if any(move.value_delta_twd is None for move in sku_moves):
             gaps.append(f"{sku}: ops movement valuation missing")
-        if any(line.qty_delta_packs is None for line in sku_lines):
+        if any(line.qty_delta_pieces is None for line in sku_lines):
             gaps.append(f"{sku}: independent journal quantity missing")
-        ops_qty = sum((Decimal(move.qty_delta_packs) for move in sku_moves), Decimal(0))
-        gl_qty = sum((line.qty_delta_packs or Decimal(0) for line in sku_lines), Decimal(0))
+        ops_qty = sum((Decimal(move.qty_delta_pieces) for move in sku_moves), Decimal(0))
+        gl_qty = sum((line.qty_delta_pieces or Decimal(0) for line in sku_lines), Decimal(0))
         ops_value = sum((move.value_delta_twd or Decimal(0) for move in sku_moves), Decimal(0))
         gl_value = _net(sku_lines, INVENTORY)
-        rows.append({"sku": sku, "ops_packs": str(ops_qty), "gl_packs": str(gl_qty),
+        rows.append({"sku": sku, "ops_pieces": str(ops_qty), "gl_pieces": str(gl_qty),
                      "ops_twd": str(quantize(ops_value)), "gl_twd": str(gl_value)})
     if gaps:
         return GateResult("G-3", "NOT_RUNNABLE", "; ".join(dict.fromkeys(gaps)), {"rows": rows})
-    mismatches = [row for row in rows if Decimal(row["ops_packs"]) != Decimal(row["gl_packs"])
+    mismatches = [row for row in rows if Decimal(row["ops_pieces"]) != Decimal(row["gl_pieces"])
                   or Decimal(row["ops_twd"]) != Decimal(row["gl_twd"])]
     return GateResult("G-3", "FAIL" if mismatches else "PASS",
                       "quantity or value differs from GL with zero tolerance" if mismatches else
@@ -196,7 +196,7 @@ def g4(period):
     for result in results:
         weights = defaultdict(Decimal)
         for line in result.order.lines.all():
-            weights[line.product_id] += Decimal(line.qty_packs * line.unit_price_minor)
+            weights[line.product_id] += Decimal(line.qty_sale_units * line.unit_price_minor)
         for name, figure in result.parts.items():
             if name == "cogs":
                 continue

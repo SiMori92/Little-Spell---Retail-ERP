@@ -51,7 +51,7 @@ class IngredientUnknownFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(ReadOnlyAdmin):
-    list_display = ("sku", "name", "uom", "pack_qty", "supplier", "ingredient_ref")
+    list_display = ("sku", "name", "uom", "pieces_per_sale_unit", "supplier", "ingredient_ref")
     list_filter = (IngredientUnknownFilter,)
     search_fields = ("sku", "name")
 
@@ -109,7 +109,7 @@ class OrderAdmin(ReadOnlyAdmin):
 
 @admin.register(OrderLine)
 class OrderLineAdmin(ReadOnlyAdmin):
-    list_display = ("platform_transaction_id", "order_id", "product_id", "qty_packs", "dataset_kind")
+    list_display = ("platform_transaction_id", "order_id", "product_id", "qty_sale_units", "dataset_kind")
     list_filter = ("dataset_kind",)
     search_fields = ("platform_transaction_id", "order__channel_order_id", "product__sku")
 
@@ -123,7 +123,7 @@ class ShipmentAdmin(ReadOnlyAdmin):
 
 @admin.register(InventoryMove)
 class InventoryMoveAdmin(ReadOnlyAdmin):
-    list_display = ("product_id", "kind", "qty_delta_packs", "value_delta_twd", "dataset_kind")
+    list_display = ("product_id", "kind", "qty_delta_pieces", "value_delta_twd", "dataset_kind")
     list_filter = ("dataset_kind", "kind")
     search_fields = ("product__sku", "idempotency_key")
 
@@ -165,7 +165,7 @@ class StockCountAdmin(ReadOnlyAdmin):
 
 @admin.register(StockCountLine)
 class StockCountLineAdmin(ReadOnlyAdmin):
-    list_display = ("count_id", "product_id", "qty_packs", "condition", "dataset_kind")
+    list_display = ("count_id", "product_id", "qty_pieces", "condition", "dataset_kind")
     list_filter = ("dataset_kind", "condition")
     search_fields = ("product__sku", "count__evidence_ref")
 
@@ -179,5 +179,5 @@ class OpsPeriodAdmin(ReadOnlyAdmin):
 
 @admin.register(OnHand)
 class OnHandAdmin(ReadOnlyAdmin):
-    list_display = ("sku", "qty_packs")
+    list_display = ("sku", "qty_pieces")
     search_fields = ("sku",)

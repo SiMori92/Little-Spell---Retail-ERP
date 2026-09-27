@@ -24,7 +24,7 @@ def entry(ref, when=NOW, period=PERIOD, legs=()):
     for account, debit, credit, sku, qty, memo, source in legs:
         created.append(JournalLine.objects.create(entry=journal, account=Account.objects.get(pk=account),
             debit=Decimal(str(debit)), credit=Decimal(str(credit)), sku=sku,
-            qty_delta_packs=qty, memo=memo, source_ref=source))
+            qty_delta_pieces=qty, memo=memo, source_ref=source))
     return journal, created
 
 
@@ -96,39 +96,40 @@ class G2Tests(TestCase):
 
 class G3Tests(TestCase):
     def setUp(self):
-        self.product = Product.objects.create(sku="G3-SKU", name="Synthetic", uom="PK")
+        self.product = Product.objects.create(sku="G3-SKU", name="Synthetic", uom="PC",
+                                              pieces_per_sale_unit=1)
         opening_at = datetime(2025, 2, 28, 12, tzinfo=dt_timezone.utc)
         count, _ = entry("g3-count", opening_at, "2025-02", legs=[
             leg("1231", debit=50, sku="G3-SKU", qty=Decimal(5)), leg("3111", credit=50)])
         LedgerEvent.objects.create(event_type="inventory.opening_counted", entity_table="ops.product",
-            entity_id=1, occurred_at=opening_at, payload={"counted_at":"2025-02-28","evidence_ref":"synthetic-count","lines":[{"sku":"G3-SKU","qty_packs":"5","agreed_unit_cost_twd":"10","line_value_twd":"50","condition":"sellable"}],"total_value_twd":"50"},
+            entity_id=1, occurred_at=opening_at, payload={"counted_at":"2025-02-28","evidence_ref":"synthetic-count","lines":[{"sku":"G3-SKU","qty_pieces":"5","agreed_unit_cost_twd":"10","line_value_twd":"50","condition":"sellable"}],"total_value_twd":"50"},
             idempotency_key="g3-count", posted_entry_id=count.pk,
             source_filename="synthetic", dataset_kind="SAMPLE")
-        InventoryMove.objects.create(product=self.product, kind="opening", qty_delta_packs=5,
+        InventoryMove.objects.create(product=self.product, kind="opening", qty_delta_pieces=5,
             value_delta_twd=Decimal(50), occurred_at=opening_at,
             idempotency_key="g3-open", source_filename="synthetic", dataset_kind="SAMPLE")
         receipt, _ = entry("g3-receipt", legs=[leg("1231", debit=30, sku="G3-SKU", qty=Decimal(3)),
                                              leg("2171", credit=30)])
         LedgerEvent.objects.create(event_type="po.received", entity_table="ops.product", entity_id=1,
-            occurred_at=NOW, payload={"sku_receipts":[{"sku":"G3-SKU","qty_packs":3,"landed_cost_twd":"30"}]},
+            occurred_at=NOW, payload={"sku_receipts":[{"sku":"G3-SKU","qty_pieces":3,"landed_cost_twd":"30"}]},
             idempotency_key="g3-receipt", posted_entry_id=receipt.pk,
             source_filename="synthetic", dataset_kind="SAMPLE")
-        self.receipt_move = InventoryMove.objects.create(product=self.product, kind="received", qty_delta_packs=3,
+        self.receipt_move = InventoryMove.objects.create(product=self.product, kind="received", qty_delta_pieces=3,
             value_delta_twd=Decimal(30), occurred_at=NOW,
             idempotency_key="g3-received", source_filename="synthetic", dataset_kind="SAMPLE")
         entry("g3-sold", legs=[leg("5111", debit=10, sku="G3-SKU"),
                                leg("1231", credit=10, sku="G3-SKU", qty=Decimal(-1))])
-        self.sale_move = InventoryMove.objects.create(product=self.product, kind="sold", qty_delta_packs=-1,
+        self.sale_move = InventoryMove.objects.create(product=self.product, kind="sold", qty_delta_pieces=-1,
             value_delta_twd=Decimal(-10), occurred_at=NOW,
             idempotency_key="g3-sold", source_filename="synthetic", dataset_kind="SAMPLE")
 
     def test_positive_and_quantity_negative(self):
         self.assertEqual(g3(PERIOD).status, "PASS")
-        self.sale_move.qty_delta_packs = -2
-        self.sale_move.save(update_fields=["qty_delta_packs"])
+        self.sale_move.qty_delta_pieces = -2
+        self.sale_move.save(update_fields=["qty_delta_pieces"])
         result = g3(PERIOD)
         self.assertEqual(result.status, "FAIL")
-        self.assertNotEqual(result.details["rows"][0]["ops_packs"], result.details["rows"][0]["gl_packs"])
+        self.assertNotEqual(result.details["rows"][0]["ops_pieces"], result.details["rows"][0]["gl_pieces"])
 
     def test_receipt_landed_cost_drift_fails_value_while_quantity_ties(self):
         self.receipt_move.value_delta_twd = Decimal(31)
@@ -136,7 +137,7 @@ class G3Tests(TestCase):
         result = g3(PERIOD)
         self.assertEqual(result.status, "FAIL")
         row = result.details["rows"][0]
-        self.assertEqual(Decimal(row["ops_packs"]), Decimal(row["gl_packs"]))
+        self.assertEqual(Decimal(row["ops_pieces"]), Decimal(row["gl_pieces"]))
         self.assertNotEqual(row["ops_twd"], row["gl_twd"])
 
     def test_without_opening_count_is_not_runnable(self):

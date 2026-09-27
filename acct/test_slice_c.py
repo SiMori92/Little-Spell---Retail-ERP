@@ -70,18 +70,18 @@ class EmptySourceReportTests(TestCase):
 class SyntheticContributionTests(TestCase):
     def setUp(self):
         self.channel = Channel.objects.create(code="etsy", name="Etsy")
-        self.a = Product.objects.create(sku="SKU-A", name="A", uom="PK")
-        self.b = Product.objects.create(sku="SKU-B", name="B", uom="PK")
+        self.a = Product.objects.create(sku="SKU-A", name="A", uom="PC", pieces_per_sale_unit=1)
+        self.b = Product.objects.create(sku="SKU-B", name="B", uom="PC", pieces_per_sale_unit=1)
         self.order = Order.objects.create(channel=self.channel, channel_order_id="SYN-1",
             order_date=date(2025, 3, 15), currency="TWD", discount_funded_by="seller",
             gross_minor=30000, discount_minor=2000, buyer_paid_minor=28000,
             shipping_minor=5000, shipping_discount_minor=0, tax_remitted_by_platform_minor=0,
             dest_country="US", source_filename="synthetic", dataset_kind="SAMPLE")
         OrderLine.objects.create(order=self.order, product=self.a, platform_transaction_id="SYN-A",
-            line_index=1, qty_packs=1, unit_price_minor=15000, line_discount_minor=1200,
+            line_index=1, qty_sale_units=1, unit_price_minor=15000, line_discount_minor=1200,
             item_total_minor=13800, source_filename="synthetic", dataset_kind="SAMPLE")
         OrderLine.objects.create(order=self.order, product=self.b, platform_transaction_id="SYN-B",
-            line_index=2, qty_packs=1, unit_price_minor=10000, line_discount_minor=800,
+            line_index=2, qty_sale_units=1, unit_price_minor=10000, line_discount_minor=800,
             item_total_minor=9200, source_filename="synthetic", dataset_kind="SAMPLE")
         Shipment.objects.create(order=self.order, status="dispatched", ship_date=date(2025,3,15),
                                 source_filename="synthetic", dataset_kind="SAMPLE")
@@ -227,7 +227,8 @@ class SyntheticContributionTests(TestCase):
 
 class InventoryTieTests(TestCase):
     def test_independent_ops_value_and_gl_tie_or_mismatch(self):
-        sku = Product.objects.create(sku="COUNTED", name="Counted", uom="PK")
+        sku = Product.objects.create(sku="COUNTED", name="Counted", uom="PC",
+                                     pieces_per_sale_unit=1)
         opening_at = datetime(2025,2,28,12,tzinfo=dt_timezone.utc)
         count_entry = JournalEntry.objects.create(occurred_at=opening_at, period="2025-02",
             dataset_kind="SAMPLE", source_kind="ops", source_ref="synthetic-count")
@@ -235,18 +236,18 @@ class InventoryTieTests(TestCase):
         JournalLine.objects.create(entry=count_entry, account=Account.objects.get(pk="3111"), credit=Decimal(50))
         LedgerEvent.objects.create(event_type="inventory.opening_counted", entity_table="ops.product", entity_id=1,
             occurred_at=opening_at, payload={"counted_at":"2025-02-28","evidence_ref":"synthetic-count",
-                "lines":[{"sku":"COUNTED","qty_packs":"5","agreed_unit_cost_twd":"10",
+                "lines":[{"sku":"COUNTED","qty_pieces":"5","agreed_unit_cost_twd":"10",
                           "line_value_twd":"50","condition":"sellable"}],"total_value_twd":"50"},
             idempotency_key="synthetic-count", posted_entry_id=count_entry.pk,
             source_filename="synthetic", dataset_kind="SAMPLE")
-        InventoryMove.objects.create(product=sku, kind="opening", qty_delta_packs=5,
+        InventoryMove.objects.create(product=sku, kind="opening", qty_delta_pieces=5,
             value_delta_twd=Decimal(50), occurred_at=opening_at, idempotency_key="synthetic-open",
             source_filename="synthetic", dataset_kind="SAMPLE")
         sold_entry = JournalEntry.objects.create(occurred_at=NOW, period=PERIOD,
             dataset_kind="SAMPLE", source_kind="ops", source_ref="synthetic-sold")
         JournalLine.objects.create(entry=sold_entry, account=Account.objects.get(pk="5111"), debit=Decimal(10), sku="COUNTED")
         JournalLine.objects.create(entry=sold_entry, account=Account.objects.get(pk="1231"), credit=Decimal(10), sku="COUNTED")
-        move = InventoryMove.objects.create(product=sku, kind="sold", qty_delta_packs=-1,
+        move = InventoryMove.objects.create(product=sku, kind="sold", qty_delta_pieces=-1,
             value_delta_twd=Decimal(-10), occurred_at=NOW, idempotency_key="synthetic-sold",
             source_filename="synthetic", dataset_kind="SAMPLE")
         report = inventory_roll_forward(PERIOD)

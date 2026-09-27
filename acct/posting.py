@@ -51,7 +51,7 @@ class Leg:
     txn_currency: str | None = None
     fx_rate: FxRate | None = None
     sku: str | None = None
-    qty_delta_packs: Decimal | None = None
+    qty_delta_pieces: Decimal | None = None
 
 
 def dr(code, value, **kwargs):
@@ -153,7 +153,9 @@ def shipped(e):
         raise PostingError("tax_treatment unresolved for destination")
     original = LedgerEvent.objects.get(event_type="order.placed", entity_table="ops.order", entity_id=order.pk)
     factor, _ = public_fx(original)
-    product = money(Decimal(sum(line.qty_packs * line.unit_price_minor for line in order.lines.all())) / 100 * factor)
+    product = money(Decimal(sum(
+        line.qty_sale_units * line.unit_price_minor for line in order.lines.all()
+    )) / 100 * factor)
     shipping = money(Decimal(order.shipping_minor + order.shipping_discount_minor) / 100 * factor)
     discount = money(Decimal(order.discount_minor) / 100 * factor)
     deposit = money(Decimal(original.amount_minor) / 100 * factor)
@@ -184,15 +186,18 @@ def cogs(e, reprint=False):
     lines = []
     for line in order.lines.all():
         sku = line.product_id
-        qty = line.qty_packs
+        qty = Decimal(line.qty_sale_units * line.product.pieces_per_sale_unit)
         position = WacPosition.objects.select_for_update().filter(pk=sku).first()
-        if position is None or position.qty_packs < qty or position.qty_packs <= 0:
+        if position is None or position.qty_pieces < qty or position.qty_pieces <= 0:
             raise PostingError(f"SKU {sku} has no sufficient weighted-average stock")
-        onhand = InventoryMove.objects.filter(product_id=sku, occurred_at__lte=e.occurred_at).values_list("qty_delta_packs", flat=True)
+        onhand = InventoryMove.objects.filter(
+            product_id=sku, occurred_at__lte=e.occurred_at
+        ).values_list("qty_delta_pieces", flat=True)
         if sum(onhand) < 0:
             raise PostingError(f"SKU {sku} on-hand would be negative")
-        value = money(Decimal(qty) * position.value_twd / position.qty_packs)
-        lines += [dr("5111", value, sku=sku), cr("1231", value, sku=sku, qty_delta_packs=-Decimal(qty))]
+        value = money(qty * position.value_twd / position.qty_pieces)
+        lines += [dr("5111", value, sku=sku),
+                  cr("1231", value, sku=sku, qty_delta_pieces=-qty)]
     packaging = e.payload.get("packaging_twd")
     if packaging:
         lines += pair("5114", "1233", packaging)
@@ -316,10 +321,12 @@ def po_received(e):
     receipts = required(p, "sku_receipts")
     if money(sum(money(required(row, "landed_cost_twd")) for row in receipts)) != c["product"]:
         raise PostingError("SKU landed cost does not tie to product inventory debit")
-    if any(money(required(row, "qty_packs")) <= 0 or not row.get("sku") for row in receipts):
-        raise PostingError("PO receipt needs positive SKU quantities")
+    quantities = [money(required(row, "qty_pieces")) for row in receipts]
+    if any(qty <= 0 or qty != qty.to_integral_value() for qty in quantities) or any(
+            not row.get("sku") for row in receipts):
+        raise PostingError("PO receipt needs positive whole-piece SKU quantities")
     lines = [dr("1231", row["landed_cost_twd"], sku=row["sku"],
-                qty_delta_packs=money(row["qty_packs"])) for row in receipts]
+                qty_delta_pieces=money(row["qty_pieces"])) for row in receipts]
     lines += [dr("1233", c["packaging"]), cr("2171", c["supplier"]), cr("2172", c["freight"]), cr("2192", c["duty"]), cr("1232", c["in_transit"])]
     return [x for x in lines if x.debit or x.credit]
 
@@ -341,17 +348,20 @@ def po_paid(e):
 
 
 def inventory_adjusted(e):
-    if not e.payload.get("evidence_ref") or e.payload.get("qty") is None or not e.payload.get("sku"):
+    if (not e.payload.get("evidence_ref") or e.payload.get("qty_pieces") is None
+            or not e.payload.get("sku")):
         raise PostingError("inventory adjustment needs count evidence, SKU and qty")
     position = WacPosition.objects.select_for_update().filter(pk=e.payload["sku"]).first()
-    qty = money(e.payload["qty"])
-    if position is None or position.qty_packs < qty or position.qty_packs <= 0:
+    qty = money(e.payload["qty_pieces"])
+    if qty != qty.to_integral_value():
+        raise PostingError("inventory adjustment qty_pieces must be whole pieces")
+    if position is None or position.qty_pieces < qty or position.qty_pieces <= 0:
         raise PostingError("inventory adjustment lacks sufficient SKU WAC stock")
-    value = money(position.value_twd * qty / position.qty_packs)
+    value = money(position.value_twd * qty / position.qty_pieces)
     if e.payload.get("source_value_twd") is not None and money(e.payload["source_value_twd"]) != value:
         raise PostingError("inventory adjustment WAC changed since count intake; reconcile the source")
     return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value,
-            sku=e.payload["sku"], qty_delta_packs=-qty)]
+            sku=e.payload["sku"], qty_delta_pieces=-qty)]
 
 
 def opening_counted(e):
@@ -377,16 +387,16 @@ def opening_counted(e):
         seen.add(row["sku"])
         if row.get("condition") not in {"sellable", "damaged_unsellable"}:
             raise PostingError(f"opening count {row['sku']} has invalid condition")
-        qty = money(required(row, "qty_packs"))
+        qty = money(required(row, "qty_pieces"))
         if qty != qty.to_integral_value():
-            raise PostingError(f"opening count {row['sku']} qty_packs must be whole packs")
+            raise PostingError(f"opening count {row['sku']} qty_pieces must be whole pieces")
         unit = money(required(row, "agreed_unit_cost_twd"))
         value = money(required(row, "line_value_twd"))
         if value != money(qty * unit):
             raise PostingError(f"opening count {row['sku']} line_value_twd disagrees with quantity and cost")
         total += value
         # The zero pair is evidence that this SKU was counted, not an omitted SKU.
-        lines += [dr("1231", value, sku=row["sku"], qty_delta_packs=qty),
+        lines += [dr("1231", value, sku=row["sku"], qty_delta_pieces=qty),
                   cr("3111", value, sku=row["sku"] if not value else None)]
     if money(required(payload, "total_value_twd")) != money(total):
         raise PostingError("opening count total_value_twd disagrees with sum of lines")
@@ -507,29 +517,32 @@ def apply_wac(event, lines):
     kind = event.event_type
     p = event.payload
     if kind in ("inventory.opening_counted", "po.received"):
-        rows = ([{"sku": row["sku"], "qty_packs": row["qty_packs"], "landed_cost_twd": row["line_value_twd"]}
+        rows = ([{"sku": row["sku"], "qty_pieces": row["qty_pieces"], "landed_cost_twd": row["line_value_twd"]}
                  for row in p["lines"]] if kind == "inventory.opening_counted" else p["sku_receipts"])
         for row in rows:
             position, _ = WacPosition.objects.select_for_update().get_or_create(sku=row["sku"])
-            position.qty_packs += money(row["qty_packs"])
+            position.qty_pieces += money(row["qty_pieces"])
             position.value_twd += money(row["landed_cost_twd"])
-            position.save(update_fields=["qty_packs", "value_twd"])
+            position.save(update_fields=["qty_pieces", "value_twd"])
     elif kind in ("order.cogs_relieved", "order.reprint_issued"):
         order = Order.objects.get(pk=event.entity_id)
         for order_line, cost_line in zip(order.lines.all(), (line for line in lines if line.account == "5111")):
             position = WacPosition.objects.select_for_update().get(pk=order_line.product_id)
-            position.qty_packs -= Decimal(order_line.qty_packs)
+            qty_pieces = Decimal(
+                order_line.qty_sale_units * order_line.product.pieces_per_sale_unit
+            )
+            position.qty_pieces -= qty_pieces
             position.value_twd -= cost_line.debit
-            if position.qty_packs == 0:
+            if position.qty_pieces == 0:
                 position.value_twd = Decimal(0)
-            position.save(update_fields=["qty_packs", "value_twd"])
+            position.save(update_fields=["qty_pieces", "value_twd"])
     elif kind == "inventory.adjusted":
         position = WacPosition.objects.select_for_update().get(pk=p["sku"])
-        position.qty_packs -= money(p["qty"])
+        position.qty_pieces -= money(p["qty_pieces"])
         position.value_twd -= lines[0].debit
-        if position.qty_packs == 0:
+        if position.qty_pieces == 0:
             position.value_twd = Decimal(0)
-        position.save(update_fields=["qty_packs", "value_twd"])
+        position.save(update_fields=["qty_pieces", "value_twd"])
     elif kind == "po.landed_cost_adjusted":
         position = WacPosition.objects.select_for_update().get(pk=p["sku"])
         position.value_twd += next(line.debit for line in lines if line.account == "1231")
@@ -564,7 +577,7 @@ def post_event(event):
         line_memo = f"[ESTIMATE] basis: {basis_note}" if estimated else ""
         JournalLine.objects.create(entry=entry, account=account, debit=item.debit, credit=item.credit,
             txn_amount=item.txn_amount, txn_currency=item.txn_currency, fx_rate=item.fx_rate, sku=item.sku,
-            qty_delta_packs=item.qty_delta_packs, source_ref=source_ref, memo=line_memo[:255])
+            qty_delta_pieces=item.qty_delta_pieces, source_ref=source_ref, memo=line_memo[:255])
     if lines:
         apply_wac(event, lines)
     if source_kind == "ops":

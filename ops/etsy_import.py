@@ -205,7 +205,7 @@ def _orders(rows: list[dict], coupon_funding: dict | None, result: ImportResult)
             try:
                 qty = int(line["Quantity"])
             except ValueError as exc:
-                raise ImportRefused(f"Invalid pack quantity for order {order_id}") from exc
+                raise ImportRefused(f"Invalid sale-unit quantity for order {order_id}") from exc
             price = _minor(line["Price"])
             discount = _minor(line["Discount Amount"])
             total = _minor(line["Item Total"])
@@ -434,18 +434,20 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
     for order_id, parsed in orders.items():
         if parsed["shipped"] and not Order.objects.filter(channel=channel, channel_order_id=order_id).exists():
             for line in parsed["lines"]:
-                required[line["sku"]] += line["qty"]
-    available = dict(OnHand.objects.filter(sku__in=required).values_list("sku", "qty_packs"))
+                required[line["sku"]] += (
+                    line["qty"] * products[line["sku"]].pieces_per_sale_unit
+                )
+    available = dict(OnHand.objects.filter(sku__in=required).values_list("sku", "qty_pieces"))
     for sku, needed in required.items():
         if available.get(sku, 0) < needed:
-            raise ImportRefused(f"Insufficient counted packs for SKU {sku}; need {needed}")
+            raise ImportRefused(f"Insufficient counted pieces for SKU {sku}; need {needed}")
     for order_id, parsed in orders.items():
         existing = Order.objects.filter(channel=channel, channel_order_id=order_id).first()
         if existing:
             expected_lines = sorted((x["txn"], x["sku"], x["listing"], x["qty"],
                                      x["price"], x["discount"], x["total"]) for x in parsed["lines"])
             actual_lines = sorted(existing.lines.values_list(
-                "platform_transaction_id", "product_id", "listing_id", "qty_packs",
+                "platform_transaction_id", "product_id", "listing_id", "qty_sale_units",
                 "unit_price_minor", "line_discount_minor", "item_total_minor"
             ))
             shipment = Shipment.objects.filter(order=existing).first()
@@ -477,7 +479,7 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
         for line in parsed["lines"]:
             OrderLine.objects.create(
                 order=obj, product=products[line["sku"]], platform_transaction_id=line["txn"],
-                listing_id=line["listing"], line_index=line["index"], qty_packs=line["qty"],
+                listing_id=line["listing"], line_index=line["index"], qty_sale_units=line["qty"],
                 unit_price_minor=line["price"], line_discount_minor=line["discount"],
                 item_total_minor=line["total"], source_filename=order_path.name,
                 dataset_kind=settings.dataset_kind,
@@ -496,7 +498,10 @@ def import_etsy(order_path, statement_path, *, commit: bool = False,
             result.inserted_rows += 1
             for line in parsed["lines"]:
                 InventoryMove.objects.create(
-                    product=products[line["sku"]], kind="sold", qty_delta_packs=-line["qty"],
+                    product=products[line["sku"]], kind="sold",
+                    qty_delta_pieces=-(
+                        line["qty"] * products[line["sku"]].pieces_per_sale_unit
+                    ),
                     occurred_at=parsed["shipped"], idempotency_key=f"sold|etsy|{line['txn']}",
                     source_filename=order_path.name, dataset_kind=settings.dataset_kind,
                 )

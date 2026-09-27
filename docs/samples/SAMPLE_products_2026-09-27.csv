@@ -1,4 +1,4 @@
-sku,name,pack_qty,supplier_ref,ingredient_ref,evidence_ref
+sku,name,pieces_per_sale_unit,supplier_ref,ingredient_ref,evidence_ref
 TS-FL-001-S,Wildflower Fine-Line,1,SUP-001,UNKNOWN,product mapping v1
 TS-FL-001-M,Wildflower Fine-Line,1,SUP-001,UNKNOWN,product mapping v1
 TS-GM-002-S,Sacred Geometry Moon,1,SUP-001,UNKNOWN,product mapping v1

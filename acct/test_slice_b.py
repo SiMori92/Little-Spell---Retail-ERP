@@ -20,12 +20,13 @@ class PostingRulesTests(TestCase):
     def setUp(self):
         FxRate.objects.create(rate_date=date(2025,3,27), currency="USD", kind="public", rate="32.000000", rate_source="manual", evidence_ref="synthetic-rate")
         channel = Channel.objects.create(code="TEST", name="Test")
-        product = Product.objects.create(sku="TESTSKU", name="Test", uom="PK")
+        product = Product.objects.create(sku="TESTSKU", name="Test", uom="PC",
+                                         pieces_per_sale_unit=1)
         self.order = Order.objects.create(channel=channel, channel_order_id="TEST-1", order_date=date(2025,3,27), currency="USD", coupon_code="", discount_funded_by="seller", gross_minor=1000, discount_minor=100, buyer_paid_minor=900, shipping_minor=100, shipping_discount_minor=0, tax_remitted_by_platform_minor=0, dest_country="US", source_filename="synthetic", dataset_kind="SAMPLE")
-        OrderLine.objects.create(order=self.order, product=product, platform_transaction_id="TEST-TXN", listing_id="TEST-LIST", line_index=1, qty_packs=1, unit_price_minor=900, line_discount_minor=100, item_total_minor=800, source_filename="synthetic", dataset_kind="SAMPLE")
+        OrderLine.objects.create(order=self.order, product=product, platform_transaction_id="TEST-TXN", listing_id="TEST-LIST", line_index=1, qty_sale_units=1, unit_price_minor=900, line_discount_minor=100, item_total_minor=800, source_filename="synthetic", dataset_kind="SAMPLE")
         Shipment.objects.create(order=self.order, status="dispatched", ship_date=date(2025,3,27), source_filename="synthetic", dataset_kind="SAMPLE")
-        InventoryMove.objects.create(product=product, kind="opening", qty_delta_packs=2, occurred_at=NOW, idempotency_key="TEST-STOCK", source_filename="synthetic", dataset_kind="SAMPLE")
-        WacPosition.objects.create(sku="TESTSKU", qty_packs=Decimal(2), value_twd=Decimal(10))
+        InventoryMove.objects.create(product=product, kind="opening", qty_delta_pieces=2, occurred_at=NOW, idempotency_key="TEST-STOCK", source_filename="synthetic", dataset_kind="SAMPLE")
+        WacPosition.objects.create(sku="TESTSKU", qty_pieces=Decimal(2), value_twd=Decimal(10))
         self.placed = LedgerEvent.objects.create(event_type="order.placed", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=900, currency="USD", payload={"discount_funded_by":"seller"}, idempotency_key="test-placed", source_filename="synthetic", dataset_kind="SAMPLE")
 
     def event(self, event_type, *, payload=None, amount=1000, currency="TWD", entity_table="ops.order"):
@@ -47,11 +48,11 @@ class PostingRulesTests(TestCase):
             "settlement.received": self.event("settlement.received", amount=31000, payload={"channel_applied_fx_rate":"31.000000","rate_source":"stated","usd_settled":"10","rate_evidence_ref":"synthetic"}),
             "settlement.reversed": self.event("settlement.reversed", payload={"original_carrying_twd":"320","bank_reversal_twd":"325","reversal_fee_twd":"5"}),
             "po.in_transit": self.event("po.in_transit"),
-            "po.received": self.event("po.received", payload={"landed_components_twd":{"product":"100","packaging":"10","supplier":"100","freight":"5","duty":"5","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_packs":"10","landed_cost_twd":"100"}]}),
+            "po.received": self.event("po.received", payload={"landed_components_twd":{"product":"100","packaging":"10","supplier":"100","freight":"5","duty":"5","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"10","landed_cost_twd":"100"}]}),
             "po.landed_cost_adjusted": self.event("po.landed_cost_adjusted", payload={"onhand_ratio":"0.4","lot_ref":"L","sku":"TESTSKU"}),
             "po.paid": self.event("po.paid", payload={"bank_ref":"B"}),
-            "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty":"2"}),
-            "inventory.opening_counted": self.event("inventory.opening_counted", payload={"counted_at":"2025-03-27","evidence_ref":"synthetic-count","lines":[{"sku":"TESTSKU","qty_packs":"2","agreed_unit_cost_twd":"5","line_value_twd":"10","condition":"sellable"}],"total_value_twd":"10"}),
+            "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty_pieces":"2"}),
+            "inventory.opening_counted": self.event("inventory.opening_counted", payload={"counted_at":"2025-03-27","evidence_ref":"synthetic-count","lines":[{"sku":"TESTSKU","qty_pieces":"2","agreed_unit_cost_twd":"5","line_value_twd":"10","condition":"sellable"}],"total_value_twd":"10"}),
             "cost.recorded": self.event("cost.recorded", entity_table="ops.etsystatementrow", payload={"category":"platform_listing_fee","settled_via":"etsy_rail"}),
         }
         self.assertEqual(len(cases), 20)
@@ -185,16 +186,78 @@ class PostingRulesTests(TestCase):
             c.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     def test_cogs_uses_running_weighted_average_per_sku(self):
-        receipt = LedgerEvent.objects.create(event_type="po.received", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={"landed_components_twd":{"product":"30","packaging":"0","supplier":"30","freight":"0","duty":"0","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_packs":"3","landed_cost_twd":"30"}]}, idempotency_key="synthetic-receipt", source_filename="synthetic", dataset_kind="SAMPLE")
+        receipt = LedgerEvent.objects.create(event_type="po.received", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={"landed_components_twd":{"product":"30","packaging":"0","supplier":"30","freight":"0","duty":"0","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"3","landed_cost_twd":"30"}]}, idempotency_key="synthetic-receipt", source_filename="synthetic", dataset_kind="SAMPLE")
         post_event(receipt)
         cogs_event = LedgerEvent.objects.create(event_type="order.cogs_relieved", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={}, idempotency_key="synthetic-cogs", source_filename="synthetic", dataset_kind="SAMPLE")
         entry_id = post_event(cogs_event)
         self.assertEqual(JournalLine.objects.get(entry_id=entry_id, account_id="5111").debit, Decimal("8.0000"))
         position = WacPosition.objects.get(pk="TESTSKU")
-        self.assertEqual(position.qty_packs, 4)
+        self.assertEqual(position.qty_pieces, 4)
         self.assertEqual(position.value_twd, Decimal("32.0000"))
         with connection.cursor() as c:
             c.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
+    def test_two_ts_mn_sale_units_relieve_twenty_four_pieces_without_changing_cogs(self):
+        product = Product.objects.create(
+            sku="TS-MN-006-P", name="Micro Symbol Flash Sheet", uom="PC",
+            pieces_per_sale_unit=12,
+        )
+        order = Order.objects.create(
+            channel=self.order.channel, channel_order_id="TEST-TS-MN", order_date=date(2025, 3, 27),
+            currency="TWD", coupon_code="", discount_funded_by="none", gross_minor=2000,
+            discount_minor=0, buyer_paid_minor=2000, shipping_minor=0,
+            shipping_discount_minor=0, tax_remitted_by_platform_minor=0, dest_country="TW",
+            source_filename="synthetic", dataset_kind="SAMPLE",
+        )
+        OrderLine.objects.create(
+            order=order, product=product, platform_transaction_id="TEST-TS-MN-TXN",
+            listing_id="TEST-TS-MN-LIST", line_index=1, qty_sale_units=2,
+            unit_price_minor=1000, line_discount_minor=0, item_total_minor=2000,
+            source_filename="synthetic", dataset_kind="SAMPLE",
+        )
+        Shipment.objects.create(order=order, status="dispatched", ship_date=date(2025, 3, 27),
+                                source_filename="synthetic", dataset_kind="SAMPLE")
+        InventoryMove.objects.create(
+            product=product, kind="opening", qty_delta_pieces=24, value_delta_twd=120,
+            occurred_at=NOW, idempotency_key="TS-MN-OPEN", source_filename="synthetic",
+            dataset_kind="SAMPLE",
+        )
+        InventoryMove.objects.create(
+            product=product, kind="sold", qty_delta_pieces=-24, value_delta_twd=None,
+            occurred_at=NOW, idempotency_key="TS-MN-SOLD", source_filename="synthetic",
+            dataset_kind="SAMPLE",
+        )
+        WacPosition.objects.create(sku=product.sku, qty_pieces=24, value_twd=120)
+        event = LedgerEvent.objects.create(
+            event_type="order.cogs_relieved", entity_table="ops.order", entity_id=order.pk,
+            occurred_at=NOW, amount_minor=None, currency="TWD", payload={"cost_basis": "actual"},
+            idempotency_key="TS-MN-COGS", source_filename="synthetic", dataset_kind="SAMPLE",
+        )
+        entry_id = post_event(event)
+        credit = JournalLine.objects.get(entry_id=entry_id, account_id="1231")
+        self.assertEqual((credit.qty_delta_pieces, credit.credit), (Decimal("-24"), Decimal("120.0000")))
+        position = WacPosition.objects.get(pk=product.sku)
+        self.assertEqual((position.qty_pieces, position.value_twd), (0, 0))
+
+    def test_old_pack_payload_names_are_refused(self):
+        old_opening = self.event("inventory.opening_counted", payload={
+            "counted_at": "2025-03-27", "evidence_ref": "old", "lines": [{
+                "sku": "TESTSKU", "qty_packs": "2", "agreed_unit_cost_twd": "5",
+                "line_value_twd": "10", "condition": "sellable",
+            }], "total_value_twd": "10",
+        })
+        old_adjustment = self.event("inventory.adjusted", payload={
+            "evidence_ref": "old", "sku": "TESTSKU", "qty": "1",
+        })
+        old_receipt = self.event("po.received", payload={
+            "landed_components_twd": {"product": "10", "packaging": "0", "supplier": "10",
+                                      "freight": "0", "duty": "0", "in_transit": "0"},
+            "sku_receipts": [{"sku": "TESTSKU", "qty_packs": "1", "landed_cost_twd": "10"}],
+        })
+        for event, field in ((old_opening, "qty_pieces"), (old_adjustment, "qty_pieces"),
+                             (old_receipt, "qty_pieces")):
+            with self.subTest(event=event.event_type), self.assertRaisesRegex(PostingError, field):
+                plan(event)
 
     def test_ddu_is_acknowledged_without_financial_lines(self):
         event = LedgerEvent.objects.create(event_type="order.duty_incurred", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=1000, currency="TWD", payload={"duty_position":"DDU"}, idempotency_key="synthetic-ddu", source_filename="synthetic", dataset_kind="SAMPLE")

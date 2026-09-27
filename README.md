@@ -140,7 +140,7 @@ identifies one receipt. Advertising requires a channel. Receipts never use
 `etsy_rail` or `platform_listing_fee`.
 
 The count header is
-`counted_at,evidence_ref,sku,qty_packs,agreed_unit_cost_twd,condition`.
+`counted_at,evidence_ref,sku,qty_pieces,agreed_unit_cost_twd,condition`.
 Repeat the same date and evidence reference on every row, with one row for **every**
 product SKU. Write `0` explicitly for a counted zero. The first count emits one
 opening schedule; later counts can only reduce stock through `inventory.adjusted`.

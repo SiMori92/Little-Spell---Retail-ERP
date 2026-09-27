@@ -1,4 +1,4 @@
-deal_id,line_no,customer_ref,status,enquiry_at,quoted_at,quote_twd,follow_up_on,lost_reason,sku,qty_packs,unit_price_twd,shipping_charged_twd,ship_country,paid_at,wallet_txn_id,ship_date,consent_marketing,journey_sent,evidence_ref
+deal_id,line_no,customer_ref,status,enquiry_at,quoted_at,quote_twd,follow_up_on,lost_reason,sku,qty_sale_units,unit_price_twd,shipping_charged_twd,ship_country,paid_at,wallet_txn_id,ship_date,consent_marketing,journey_sent,evidence_ref
 IG-202610-001,1,C-0001,enquiry,2026-10-01,,,2026-10-05,,,,,,,,,,yes,none,instagram/deals/evidence-a
 IG-202610-002,1,C-0002,quoted,2026-10-02,2026-10-03,500.0000,2026-10-10,,,,,,,,,,no,none,instagram/deals/evidence-b
 IG-202610-003,1,C-0003,paid,2026-10-03,2026-10-04,600.0000,,,TS-FL-001-S,2,300.0000,0.0000,TW,2026-10-05,880003,,yes,none,instagram/deals/evidence-c

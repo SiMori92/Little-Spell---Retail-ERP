@@ -54,7 +54,8 @@ class IntakeResult:
 
 
 def load_schema(kind: str) -> dict:
-    fixture = json.loads((SCHEMAS / f"{kind}_header_v1.json").read_text())
+    version = 2 if kind in {"products", "counts", "ig_deals"} else 1
+    fixture = json.loads((SCHEMAS / f"{kind}_header_v{version}.json").read_text())
     if fixture.get("source") not in {"authored", "observed"}:
         raise ImportRefused(f"{kind} schema fixture must declare source as authored or observed")
     return fixture
@@ -86,7 +87,7 @@ def _opening_payload(counted_at, evidence, lines, total):
 
 
 def _adjustment_payload(sku, delta, evidence, value):
-    return {"sku": sku, "qty": str(delta), "evidence_ref": evidence,
+    return {"sku": sku, "qty_pieces": str(delta), "evidence_ref": evidence,
             "source_value_twd": str(value)}
 
 
@@ -136,6 +137,7 @@ def _count_manifest() -> IntakeManifest:
             "inventory.adjusted": lambda sku, delta, evidence, value:
                 _adjustment_payload(sku, delta, evidence, value),
         },
+        version=2,
     )
 
 
@@ -149,6 +151,7 @@ def _reference_manifest(kind: str, target_models: tuple[str, ...]) -> IntakeMani
         actual_filename=re.compile(rf"{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
         target_models=target_models, events=(), natural_key=f"dataset + {kind} natural key",
         sample_filename=re.compile(rf"SAMPLE_{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
+        version=2 if kind == "products" else 1,
     )
 
 
@@ -164,6 +167,7 @@ def _ig_manifest() -> IntakeManifest:
         sample_filename=re.compile(rf"SAMPLE_ig_deals_{month}\.csv\Z"),
         target_models=("IgDeal", "IgDealStatus"), events=(),
         natural_key="dataset + deal_id + line_no",
+        version=2,
     )
 
 
@@ -277,16 +281,16 @@ def _product_row(row: dict, columns) -> dict:
     sku = _required(row, "sku")
     if not SKU_PATTERN.fullmatch(sku):
         raise ImportRefused(f"sku does not match the product mapping pattern: {sku}")
-    raw_qty = _required(row, "pack_qty")
+    raw_qty = _required(row, "pieces_per_sale_unit")
     if not raw_qty.isdigit() or int(raw_qty) <= 0:
-        raise ImportRefused(f"product {sku} pack_qty must be a positive whole number")
+        raise ImportRefused(f"product {sku} pieces_per_sale_unit must be a positive whole number")
     ingredient = _required(row, "ingredient_ref")
     if ingredient != "UNKNOWN" and not ingredient.startswith("compliance/suppliers/"):
         raise ImportRefused("ingredient_ref must be UNKNOWN or start with compliance/suppliers/")
     return {
         "sku": sku,
         "name": _required(row, "name"),
-        "pack_qty": int(raw_qty),
+        "pieces_per_sale_unit": int(raw_qty),
         "supplier_ref": row["supplier_ref"].strip(),
         "ingredient_ref": ingredient,
         "evidence_ref": _required(row, "evidence_ref"),
@@ -322,7 +326,7 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
         if not prior:
             continue
         comparisons = {
-            "name": row["name"], "pack_qty": row["pack_qty"],
+            "name": row["name"], "pieces_per_sale_unit": row["pieces_per_sale_unit"],
             "supplier": suppliers.get(row["supplier_ref"]),
         }
         for field, value in comparisons.items():
@@ -338,7 +342,8 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
         if row["sku"] in existing:
             continue
         Product.objects.create(
-            sku=row["sku"], name=row["name"], uom="PK", pack_qty=row["pack_qty"],
+            sku=row["sku"], name=row["name"], uom="PC",
+            pieces_per_sale_unit=row["pieces_per_sale_unit"],
             supplier=suppliers.get(row["supplier_ref"]), ingredient_ref=row["ingredient_ref"],
         )
         result.inserted_rows += 1
@@ -413,7 +418,7 @@ def _ig_row(row: dict, columns) -> dict:
     if status != "lost" and lost_reason:
         raise ImportRefused(f"deal {deal_id} lost_reason is allowed only when lost")
     sku = row["sku"].strip()
-    raw_qty = row["qty_packs"].strip()
+    raw_qty = row["qty_sale_units"].strip()
     unit_price = _optional_money(row["unit_price_twd"], "unit_price_twd")
     shipping = _optional_money(row["shipping_charged_twd"], "shipping_charged_twd")
     country = row["ship_country"].strip()
@@ -423,7 +428,7 @@ def _ig_row(row: dict, columns) -> dict:
         if not sku:
             raise ImportRefused(f"deal {deal_id} sku is required from paid onward")
         if not raw_qty.isdigit() or int(raw_qty) <= 0:
-            raise ImportRefused(f"deal {deal_id} qty_packs must be a whole number > 0 from paid onward")
+            raise ImportRefused(f"deal {deal_id} qty_sale_units must be a whole number > 0 from paid onward")
         if unit_price is None or unit_price <= 0:
             raise ImportRefused(f"deal {deal_id} unit_price_twd must be positive from paid onward")
         if shipping is None:
@@ -451,7 +456,7 @@ def _ig_row(row: dict, columns) -> dict:
         "deal_id": deal_id, "line_no": int(raw_line), "customer_ref": customer_ref,
         "status": status, "enquiry_at": enquiry_at, "quoted_at": quoted_at,
         "quote_twd": quote, "follow_up_on": follow_up, "lost_reason": lost_reason,
-        "product_id": sku or None, "qty_packs": qty, "unit_price_twd": unit_price,
+        "product_id": sku or None, "qty_sale_units": qty, "unit_price_twd": unit_price,
         "shipping_charged_twd": shipping, "ship_country": country, "paid_at": paid_at,
         "wallet_txn_id": wallet, "ship_date": ship_date, "consent_marketing": consent,
         "journey_sent": journey, "evidence_ref": evidence,
@@ -525,7 +530,7 @@ def import_ig_deals(path, *, commit: bool = False) -> IntakeResult:
     for item in existing_rows:
         existing_by_deal.setdefault(item.deal_id, []).append(item)
     transitions = []
-    protected = ("quote_twd", "product_id", "qty_packs", "unit_price_twd", "wallet_txn_id")
+    protected = ("quote_twd", "product_id", "qty_sale_units", "unit_price_twd", "wallet_txn_id")
     all_fields = tuple(field.name for field in IgDeal._meta.fields
                        if field.name not in {"id", "source_filename", "dataset_kind", "product"}) + ("product_id",)
     for deal_id, rows in by_deal.items():
@@ -713,15 +718,15 @@ def _count_rows(source_rows: list[dict]) -> tuple[date, str, list[dict], Decimal
         sku = row["sku"].strip()
         if not sku:
             raise ImportRefused("count SKU is mandatory")
-        raw_qty = row["qty_packs"].strip()
+        raw_qty = row["qty_pieces"].strip()
         if not raw_qty.isdigit():
-            raise ImportRefused(f"count {sku} qty_packs must be a nonnegative whole number; blank is unknown")
+            raise ImportRefused(f"count {sku} qty_pieces must be a nonnegative whole number; blank is unknown")
         qty = int(raw_qty)
         unit = _money(row["agreed_unit_cost_twd"], "agreed_unit_cost_twd")
         condition = row["condition"].strip()
         if condition not in CONDITIONS:
             raise ImportRefused(f"count {sku} condition must be sellable or damaged_unsellable")
-        lines.append({"sku": sku, "qty_packs": qty, "agreed_unit_cost_twd": unit,
+        lines.append({"sku": sku, "qty_pieces": qty, "agreed_unit_cost_twd": unit,
                       "line_value_twd": unit * qty, "condition": condition})
     if len(days) != 1:
         raise ImportRefused("counted_at must be one date for the whole count schedule")
@@ -752,9 +757,9 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
     result = IntakeResult(parsed_rows=len(lines))
     prior = StockCount.objects.filter(dataset_kind=settings.dataset_kind, evidence_ref=evidence).first()
     if prior:
-        saved = [(line.product_id, line.qty_packs, line.agreed_unit_cost_twd,
+        saved = [(line.product_id, line.qty_pieces, line.agreed_unit_cost_twd,
                   line.line_value_twd, line.condition) for line in prior.lines.order_by("product_id")]
-        observed = [(line["sku"], line["qty_packs"], line["agreed_unit_cost_twd"],
+        observed = [(line["sku"], line["qty_pieces"], line["agreed_unit_cost_twd"],
                      line["line_value_twd"], line["condition"]) for line in lines]
         if prior.counted_at != counted_at or prior.total_value_twd != total or saved != observed:
             raise ImportRefused("Previously imported count evidence_ref has changed")
@@ -768,16 +773,16 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
             raise ImportRefused("opening count must be posted before adjustment intake")
         positions = WacPosition.objects.select_for_update().in_bulk([line["sku"] for line in lines])
         onhand = dict(InventoryMove.objects.filter(dataset_kind=settings.dataset_kind,
-            product_id__in=positions).values("product_id").annotate(total=Sum("qty_delta_packs"))
+            product_id__in=positions).values("product_id").annotate(total=Sum("qty_delta_pieces"))
             .values_list("product_id", "total"))
         for line in lines:
-            sku, target = line["sku"], line["qty_packs"]
+            sku, target = line["sku"], line["qty_pieces"]
             position = positions.get(sku)
-            if position is None or position.qty_packs != Decimal(onhand.get(sku, 0)):
+            if position is None or position.qty_pieces != Decimal(onhand.get(sku, 0)):
                 raise ImportRefused(f"count {sku} has no tied WAC/on-hand position")
-            if Decimal(target) > position.qty_packs:
+            if Decimal(target) > position.qty_pieces:
                 raise ImportRefused(f"count {sku} implies an increase; a receipt is needed, not an adjustment")
-            if target < position.qty_packs and position.value_twd <= 0:
+            if target < position.qty_pieces and position.value_twd <= 0:
                 raise ImportRefused(f"count {sku} cannot reduce zero-value WAC stock")
     if not commit:
         return result
@@ -789,7 +794,7 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
     line_models = {}
     for line in lines:
         item = StockCountLine.objects.create(count=count, product_id=line["sku"],
-            qty_packs=line["qty_packs"], agreed_unit_cost_twd=line["agreed_unit_cost_twd"],
+            qty_pieces=line["qty_pieces"], agreed_unit_cost_twd=line["agreed_unit_cost_twd"],
             line_value_twd=line["line_value_twd"], condition=line["condition"],
             source_filename=path.name, dataset_kind=settings.dataset_kind)
         line_models[line["sku"]] = item
@@ -800,7 +805,7 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
                                      evidence=evidence, lines=lines, total=total)
         for line in lines:
             InventoryMove.objects.create(product_id=line["sku"], kind="opening",
-                qty_delta_packs=line["qty_packs"], value_delta_twd=line["line_value_twd"],
+                qty_delta_pieces=line["qty_pieces"], value_delta_twd=line["line_value_twd"],
                 occurred_at=occurred_at, idempotency_key=f"opening-move|{key}|{line['sku']}",
                 source_filename=path.name, dataset_kind=settings.dataset_kind)
             result.inserted_rows += 1
@@ -812,14 +817,14 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
         for line in lines:
             sku = line["sku"]
             position = positions[sku]
-            delta = position.qty_packs - Decimal(line["qty_packs"])
+            delta = position.qty_pieces - Decimal(line["qty_pieces"])
             if not delta:
                 continue
-            value = (position.value_twd * delta / position.qty_packs).quantize(
+            value = (position.value_twd * delta / position.qty_pieces).quantize(
                 Decimal("0.0001"), rounding=ROUND_HALF_UP)
             if value <= 0:
                 raise ImportRefused(f"count {sku} adjustment rounds to zero WAC value")
-            InventoryMove.objects.create(product_id=sku, kind="adjusted", qty_delta_packs=-int(delta),
+            InventoryMove.objects.create(product_id=sku, kind="adjusted", qty_delta_pieces=-int(delta),
                 value_delta_twd=-value, occurred_at=occurred_at,
                 idempotency_key=f"adjustment-move|{key}|{sku}", source_filename=path.name,
                 dataset_kind=settings.dataset_kind)

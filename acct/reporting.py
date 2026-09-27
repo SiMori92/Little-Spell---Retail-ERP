@@ -355,8 +355,8 @@ def contribution_skus(period):
         lines = list(result.order.lines.all().order_by("pk"))
         weights = defaultdict(int)
         for line in lines:
-            weights[line.product_id] += line.qty_packs * line.unit_price_minor
-            qtys[line.product_id] += line.qty_packs
+            weights[line.product_id] += line.qty_sale_units * line.unit_price_minor
+            qtys[line.product_id] += line.qty_sale_units
         if not weights or sum(weights.values()) <= 0:
             continue
         cogs_events = _events_for_order(result.order, "order.cogs_relieved")
@@ -388,7 +388,7 @@ def contribution_skus(period):
             contribution = combine(parts.values(), period, kind,
                                    signs=[1, 1, -1, -1, -1, -1, -1, -1, -1])
             by_sku[sku].append(contribution)
-    columns = (Column("sku", "SKU", False), Column("qty", "Packs"),
+    columns = (Column("sku", "SKU", False), Column("qty", "Sale units"),
                Column("orders", "Orders"), Column("contribution", "Total contribution"),
                Column("average", "Contribution per order"), Column("gap", "Per-order gap vs NT$200"))
     rows = []
@@ -397,7 +397,7 @@ def contribution_skus(period):
         average = (known(contribution.amount / len(figures), period, kind, basis=contribution.cost_basis,
                          reason=contribution.reason, estimate=contribution.estimate)
                    if contribution.amount is not None else absent(period, kind, contribution.reason))
-        rows.append({"sku": sku, "qty": known(qtys[sku], period, kind, unit="packs"),
+        rows.append({"sku": sku, "qty": known(qtys[sku], period, kind, unit="sale units"),
                      "orders": known(len(figures), period, kind, unit="orders"),
                      "contribution": contribution, "average": average,
                      "gap": combine([average, known(DANGER_TWD, period, kind)], period, kind, signs=[1, -1])})
@@ -408,7 +408,7 @@ def contribution_skus(period):
     else:
         winner = "Which SKU earns most: ABSENT — required costs or settlement evidence missing."
     if not rows:
-        rows = [{"sku": "ABSENT", "qty": absent(period, kind, "no dispatched SKU lines", unit="packs"),
+        rows = [{"sku": "ABSENT", "qty": absent(period, kind, "no dispatched SKU lines", unit="sale units"),
                  "orders": absent(period, kind, "no dispatched SKU lines", unit="orders"),
                  "contribution": absent(period, kind, "no dispatched SKU lines"),
                  "average": absent(period, kind, "no dispatched SKU lines"),
@@ -548,10 +548,10 @@ def cac_report(period):
 def inventory_roll_forward(period):
     start, end = period_bounds(period)
     kind = dataset_kind()
-    columns = (Column("sku", "SKU", False), Column("opening", "Opening packs"),
-               Column("received", "Received / returned packs"), Column("sold", "Sold packs"),
-               Column("written_off", "Written-off packs"), Column("adjusted", "Adjusted packs"),
-               Column("closing", "Calculated closing packs"),
+    columns = (Column("sku", "SKU", False), Column("opening", "Opening pcs"),
+               Column("received", "Received / returned pcs"), Column("sold", "Sold pcs"),
+               Column("written_off", "Written-off pcs"), Column("adjusted", "Adjusted pcs"),
+               Column("closing", "Calculated closing pcs"),
                Column("ops_value", "Ops closing value"), Column("gl_value", "GL inventory value"),
                Column("identity", "Identity", False))
     rows = []
@@ -564,34 +564,34 @@ def inventory_roll_forward(period):
         opening_moves = list(InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, kind="opening",
                                                           occurred_at__lte=start).order_by("occurred_at"))
         if count is None or len(opening_moves) != 1:
-            opening = absent(period, kind, "no posted opening inventory count", unit="packs")
+            opening = absent(period, kind, "no posted opening inventory count", unit="pcs")
             opening_value = absent(period, kind, "no sourced opening inventory value")
         else:
-            count_qty = Decimal(str(count[1]["qty_packs"]))
+            count_qty = Decimal(str(count[1]["qty_pieces"]))
             opening_move = opening_moves[0]
             later = InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, occurred_at__gt=count[0].occurred_at,
                                                   occurred_at__lt=start).exclude(kind="opening")
             later = list(later)
-            if opening_move.qty_delta_packs != count_qty:
-                opening = absent(period, kind, "opening move disagrees with posted count", unit="packs")
+            if opening_move.qty_delta_pieces != count_qty:
+                opening = absent(period, kind, "opening move disagrees with posted count", unit="pcs")
             else:
-                opening = known(count_qty + sum((m.qty_delta_packs for m in later), 0), period, kind, unit="packs")
+                opening = known(count_qty + sum((m.qty_delta_pieces for m in later), 0), period, kind, unit="pcs")
             if opening_move.value_delta_twd is None or any(m.value_delta_twd is None for m in later):
                 opening_value = absent(period, kind, "opening or prior movement valuation missing")
             else:
                 opening_value = known(opening_move.value_delta_twd + sum((m.value_delta_twd for m in later), Decimal(0)), period, kind)
         moves = list(InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, occurred_at__gte=start, occurred_at__lt=end))
-        received_qty = sum(m.qty_delta_packs for m in moves if m.kind in ("received", "returned"))
-        sold_qty = -sum(m.qty_delta_packs for m in moves if m.kind == "sold")
-        written_qty = -sum(m.qty_delta_packs for m in moves if m.kind == "written_off")
-        adjusted_qty = sum(m.qty_delta_packs for m in moves if m.kind == "adjusted")
-        received = known(received_qty, period, kind, unit="packs")
-        sold = known(sold_qty, period, kind, unit="packs")
-        written = known(written_qty, period, kind, unit="packs")
-        adjusted = known(adjusted_qty, period, kind, unit="packs")
+        received_qty = sum(m.qty_delta_pieces for m in moves if m.kind in ("received", "returned"))
+        sold_qty = -sum(m.qty_delta_pieces for m in moves if m.kind == "sold")
+        written_qty = -sum(m.qty_delta_pieces for m in moves if m.kind == "written_off")
+        adjusted_qty = sum(m.qty_delta_pieces for m in moves if m.kind == "adjusted")
+        received = known(received_qty, period, kind, unit="pcs")
+        sold = known(sold_qty, period, kind, unit="pcs")
+        written = known(written_qty, period, kind, unit="pcs")
+        adjusted = known(adjusted_qty, period, kind, unit="pcs")
         closing = (combine([opening, received, sold, written, adjusted],
                            period, kind, signs=[1, 1, -1, -1, 1]) if opening.amount is not None
-                   else absent(period, kind, "opening count missing; identity unprovable", unit="packs"))
+                   else absent(period, kind, "opening count missing; identity unprovable", unit="pcs"))
         ops_value = (known(opening_value.amount + sum((m.value_delta_twd for m in moves), Decimal(0)), period, kind)
                      if opening_value.amount is not None and all(m.value_delta_twd is not None for m in moves)
                      else absent(period, kind, "opening count or movement values missing"))
@@ -602,16 +602,16 @@ def inventory_roll_forward(period):
             identity = "UNPROVABLE — opening count, ops value or SKU ledger value missing"
         else:
             observed_qty = sum(InventoryMove.objects.filter(product_id=sku, dataset_kind=kind, occurred_at__lt=end)
-                               .values_list("qty_delta_packs", flat=True))
+                               .values_list("qty_delta_pieces", flat=True))
             identity = "TIES" if closing.amount == observed_qty and ops_value.amount == gl_value.amount else "MISMATCH — quantity or value disagrees"
         rows.append({"sku":sku, "opening":opening, "received":received, "sold":sold,
                      "written_off":written, "adjusted":adjusted, "closing":closing, "ops_value":ops_value,
                      "gl_value":gl_value, "identity":identity})
     if not rows:
-        rows.append({"sku":"ABSENT", "opening":absent(period, kind, "no opening inventory count", unit="packs"),
-                     "received":known(0, period, kind, unit="packs"), "sold":known(0, period, kind, unit="packs"),
-                     "written_off":known(0, period, kind, unit="packs"), "adjusted":known(0, period, kind, unit="packs"),
-                     "closing":absent(period, kind, "opening count missing; identity unprovable", unit="packs"),
+        rows.append({"sku":"ABSENT", "opening":absent(period, kind, "no opening inventory count", unit="pcs"),
+                     "received":known(0, period, kind, unit="pcs"), "sold":known(0, period, kind, unit="pcs"),
+                     "written_off":known(0, period, kind, unit="pcs"), "adjusted":known(0, period, kind, unit="pcs"),
+                     "closing":absent(period, kind, "opening count missing; identity unprovable", unit="pcs"),
                      "ops_value":absent(period, kind, "opening count missing"),
                      "gl_value":absent(period, kind, "no inventory ledger value"), "identity":"UNPROVABLE — no opening count"})
     all_inventory = list(JournalLine.objects.filter(entry__dataset_kind=kind, entry__occurred_at__lt=end,

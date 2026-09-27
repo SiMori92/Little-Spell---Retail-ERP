@@ -120,13 +120,14 @@ class SliceG0Tests(TestCase):
             self.assertFalse(model_admin.has_change_permission(None))
             self.assertFalse(model_admin.has_delete_permission(None))
 
-    def test_unknown_supplier_duplicate_sku_and_fractional_pack_are_refused(self):
+    def test_unknown_supplier_duplicate_sku_and_invalid_conversion_are_refused(self):
         import_suppliers(SAMPLES / "SAMPLE_suppliers_2026-09-27.csv", commit=True)
         rows = self.rows("products")
         cases = (
             ([{**rows[0], "supplier_ref": "SUP-999"}], "unknown supplier_ref: SUP-999"),
             ([rows[0], rows[0]], "duplicate sku in product file"),
-            ([{**rows[0], "pack_qty": "1.5"}], "pack_qty must be a positive whole number"),
+            ([{**rows[0], "pieces_per_sale_unit": "1.5"}],
+             "pieces_per_sale_unit must be a positive whole number"),
         )
         for changed_rows, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ImportRefused, message):
@@ -138,6 +139,17 @@ class SliceG0Tests(TestCase):
         with patch("ops.file_intake.load_schema", return_value=fixture), self.assertRaisesRegex(
                 ImportRefused, "suppliers schema fixture must have source authored"):
             manifest("suppliers")
+
+    def test_zero_conversion_is_refused_by_intake_and_database(self):
+        import_suppliers(SAMPLES / "SAMPLE_suppliers_2026-09-27.csv", commit=True)
+        rows = self.rows("products")
+        with self.assertRaisesRegex(ImportRefused, "pieces_per_sale_unit must be a positive whole number"):
+            import_products(self.source("products", "SAMPLE_products_2026-09-28.csv", [
+                {**rows[0], "pieces_per_sale_unit": "0"}
+            ]))
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Product.objects.create(sku="TS-ZZ-999-S", name="Invalid conversion", uom="PC",
+                                   pieces_per_sale_unit=0)
 
 
 class ComplianceFailClosedTests(TransactionTestCase):

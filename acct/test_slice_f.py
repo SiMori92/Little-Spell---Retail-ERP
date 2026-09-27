@@ -13,13 +13,13 @@ from ops.models import LedgerEvent, Product
 class OpeningScheduleTests(TestCase):
     def setUp(self):
         for sku in ("COUNT-A", "COUNT-Z"):
-            Product.objects.create(sku=sku, name="Synthetic", uom="PK")
+            Product.objects.create(sku=sku, name="Synthetic", uom="PC", pieces_per_sale_unit=1)
         self.payload = {
             "counted_at": "2025-03-27", "evidence_ref": "synthetic-photos",
             "lines": [
-                {"sku": "COUNT-A", "qty_packs": "3", "agreed_unit_cost_twd": "12.5000",
+                {"sku": "COUNT-A", "qty_pieces": "3", "agreed_unit_cost_twd": "12.5000",
                  "line_value_twd": "37.5000", "condition": "sellable"},
-                {"sku": "COUNT-Z", "qty_packs": "0", "agreed_unit_cost_twd": "5.0000",
+                {"sku": "COUNT-Z", "qty_pieces": "0", "agreed_unit_cost_twd": "5.0000",
                  "line_value_twd": "0.0000", "condition": "damaged_unsellable"},
             ],
             "total_value_twd": "37.5000",
@@ -38,9 +38,9 @@ class OpeningScheduleTests(TestCase):
         lines = list(JournalLine.objects.filter(entry_id=entry_id).order_by("id"))
         self.assertEqual(len(lines), 4)
         self.assertEqual([line.sku for line in lines], ["COUNT-A", None, "COUNT-Z", "COUNT-Z"])
-        self.assertEqual([line.qty_delta_packs for line in lines], [3, None, 0, None])
+        self.assertEqual([line.qty_delta_pieces for line in lines], [3, None, 0, None])
         self.assertEqual([line.debit for line in lines], [37.5, 0, 0, 0])
-        self.assertEqual(WacPosition.objects.get(pk="COUNT-Z").qty_packs, 0)
+        self.assertEqual(WacPosition.objects.get(pk="COUNT-Z").qty_pieces, 0)
 
     def test_mismatched_schedule_total_is_refused(self):
         self.payload["total_value_twd"] = "38.0000"

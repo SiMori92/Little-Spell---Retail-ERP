@@ -2,6 +2,7 @@
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Floor
 
 from core.models import DatasetKind
 
@@ -75,11 +76,16 @@ class WacPosition(models.Model):
     """Running weighted-average value per SKU; lots remain traceability only."""
 
     sku = models.CharField(max_length=20, primary_key=True)
-    qty_packs = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    qty_pieces = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     value_twd = models.DecimalField(max_digits=18, decimal_places=4, default=0)
 
     class Meta:
-        constraints = [models.CheckConstraint(condition=Q(qty_packs__gte=0, value_twd__gte=0), name="acct_wac_nonnegative")]
+        constraints = [
+            models.CheckConstraint(condition=Q(qty_pieces__gte=0, value_twd__gte=0),
+                                   name="acct_wac_nonnegative"),
+            models.CheckConstraint(condition=Q(qty_pieces=Floor("qty_pieces")),
+                                   name="acct_wac_whole_pieces"),
+        ]
 
 
 class JournalEntry(models.Model):
@@ -98,7 +104,7 @@ class JournalLine(models.Model):
     entry = models.ForeignKey(JournalEntry, related_name="lines", on_delete=models.PROTECT)
     account = models.ForeignKey(Account, on_delete=models.PROTECT)
     sku = models.CharField(max_length=20, null=True, blank=True, db_index=True)
-    qty_delta_packs = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    qty_delta_pieces = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
     source_ref = models.CharField(max_length=255, null=True, blank=True)
     debit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     credit = models.DecimalField(max_digits=18, decimal_places=4, default=0)
@@ -113,12 +119,17 @@ class JournalLine(models.Model):
                 condition=Q(debit__gte=0, credit__gte=0) & (
                     Q(debit__gt=0, credit=0) | Q(credit__gt=0, debit=0) |
                     (Q(debit=0, credit=0, source_ref__startswith="ops:opening-count|") &
-                     ((Q(account_id="1231", sku__isnull=False, qty_delta_packs=0)) |
-                      Q(account_id="3111", sku__isnull=False, qty_delta_packs__isnull=True)))
+                     ((Q(account_id="1231", sku__isnull=False, qty_delta_pieces=0)) |
+                      Q(account_id="3111", sku__isnull=False, qty_delta_pieces__isnull=True)))
                 ),
                 name="acct_line_one_side",
             ),
             models.CheckConstraint(condition=Q(txn_currency__isnull=True) | Q(txn_currency="TWD") | (Q(txn_amount__isnull=False) & Q(fx_rate__isnull=False)), name="acct_line_fx_triple"),
+            models.CheckConstraint(
+                condition=Q(qty_delta_pieces__isnull=True) |
+                          Q(qty_delta_pieces=Floor("qty_delta_pieces")),
+                name="acct_line_whole_pieces",
+            ),
         ]
 
 

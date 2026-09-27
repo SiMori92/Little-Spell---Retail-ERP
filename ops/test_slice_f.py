@@ -23,7 +23,7 @@ class FileIntakeTests(TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         for sku in ("SYN-A", "SYN-B"):
-            Product.objects.create(sku=sku, name="Synthetic", uom="PK")
+            Product.objects.create(sku=sku, name="Synthetic", uom="PC", pieces_per_sale_unit=1)
 
     def source(self, kind, filename, rows, *, columns=None):
         fixture = load_schema(kind)
@@ -40,9 +40,9 @@ class FileIntakeTests(TestCase):
 
     def count_rows(self, *, date="2025-03-27", ref="COUNT-ONE", first="3", second="0"):
         return [
-            {"counted_at": date, "evidence_ref": ref, "sku": "SYN-A", "qty_packs": first,
+            {"counted_at": date, "evidence_ref": ref, "sku": "SYN-A", "qty_pieces": first,
              "agreed_unit_cost_twd": "12.50", "condition": "sellable"},
-            {"counted_at": date, "evidence_ref": ref, "sku": "SYN-B", "qty_packs": second,
+            {"counted_at": date, "evidence_ref": ref, "sku": "SYN-B", "qty_pieces": second,
              "agreed_unit_cost_twd": "5.00", "condition": "damaged_unsellable"},
         ]
 
@@ -112,8 +112,14 @@ class FileIntakeTests(TestCase):
             second = import_counts(path, commit=True)
         self.assertEqual((first.inserted_rows, first.inserted_events), (5, 1))
         self.assertEqual((second.inserted_rows, second.inserted_events), (0, 0))
-        self.assertEqual(StockCountLine.objects.get(product_id="SYN-B").qty_packs, 0)
-        self.assertEqual(InventoryMove.objects.get(product_id="SYN-B").qty_delta_packs, 0)
+        self.assertEqual(StockCountLine.objects.get(product_id="SYN-B").qty_pieces, 0)
+        self.assertEqual(InventoryMove.objects.get(product_id="SYN-B").qty_delta_pieces, 0)
+
+    def test_fractional_piece_count_is_refused_by_field_name(self):
+        path = self.source("counts", "SAMPLE_fractional.csv", self.count_rows(first="7.5"))
+        with self.assertRaisesRegex(
+                ImportRefused, "SYN-A qty_pieces must be a nonnegative whole number"):
+            import_counts(path)
 
     def test_upward_adjustment_names_receipt_route_and_downward_emits_one_event(self):
         opening_path = self.source("counts", "SAMPLE_opening.csv", self.count_rows())
@@ -169,7 +175,8 @@ class ReadOnlyAdminTests(TestCase):
 
     def test_existing_row_change_is_refused(self):
         self.client.force_login(self.user)
-        product = Product.objects.create(sku="ADMIN-SKU", name="Synthetic", uom="PK")
+        product = Product.objects.create(sku="ADMIN-SKU", name="Synthetic", uom="PC",
+                                         pieces_per_sale_unit=1)
         response = self.client.post(reverse("admin:ops_product_change", args=[product.pk]),
                                     {"sku": "CHANGED", "name": "Synthetic", "uom": "PK"})
         self.assertEqual(response.status_code, 403)
