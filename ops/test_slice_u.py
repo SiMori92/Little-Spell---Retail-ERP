@@ -168,10 +168,15 @@ class UnitMigrationRefusalTests(TransactionTestCase):
             MigrationExecutor(connection).migrate(self.migrate_to)
 
     def test_actual_dataset_refuses_unconditionally(self):
-        self.settings.dataset_kind = "ACTUAL"
-        self.settings.save(update_fields=["dataset_kind"])
-        with self.assertRaisesRegex(RuntimeError, "Unit migration refused: ACTUAL dataset rows exist"):
-            MigrationExecutor(connection).migrate(self.migrate_to)
+        # Transaction rollback isolation: exercise the real one-way transition and
+        # real migration refusal, then discard the ACTUAL state with the surrounding
+        # transaction so tearDown never attempts the forbidden ACTUAL -> SAMPLE move.
+        with transaction.atomic():
+            self.settings.dataset_kind = "ACTUAL"
+            self.settings.save(update_fields=["dataset_kind"])
+            with self.assertRaisesRegex(RuntimeError, "Unit migration refused: ACTUAL dataset rows exist"):
+                MigrationExecutor(connection).migrate(self.migrate_to)
+            transaction.set_rollback(True)
 
 
 class UnitMigrationOrderTests(TestCase):

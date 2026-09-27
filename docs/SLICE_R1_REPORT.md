@@ -37,7 +37,7 @@ REFUSED: missing account(s): <sorted account codes>
 dataset_kind is one-way: ACTUAL cannot be changed back to SAMPLE
 seed is restricted to SAMPLE mode
 load_uat_sample is restricted to SAMPLE mode
-opening count already exists
+opening count fires once per dataset
 Filename <name> is SAMPLE; application dataset_kind is ACTUAL
 Filename <name> is ACTUAL; application dataset_kind is SAMPLE
 Cannot --commit: orderitems schema fixture is unverified
@@ -136,6 +136,9 @@ IG-202610-001/002/012 overdue 41/36/31 days at 2026-11-15. Repeat rate remains 2
   both authored formats commit; Etsy's existing refusal test remains the unverified-format sentinel.
 - `ops/test_slice_r1.py` — new all-11 filename-boundary test, combined loader rollback/refusal tests, and
   recomputed combined-pack report figures.
+- `ops/test_slice_u.py` — R-1.1 isolates the ACTUAL migration-refusal scenario in a transaction that is
+  rolled back, so teardown never attempts the forbidden ACTUAL→SAMPLE transition; the trigger remains the
+  authoritative control and is not bypassed.
 
 ## Verification
 
@@ -151,3 +154,15 @@ git diff --check
 Local PostgreSQL execution was unavailable because no service or container runtime was running on the build
 host (`127.0.0.1:5432` refused the connection). Per the build packet, the complete PostgreSQL 16 suite is run
 by GitHub Actions after push; its run identifier and result are recorded above after completion.
+
+## R-1.1 — gate evidence repair
+
+- Corrected the opening-count test and refusal list to the real posting message:
+  `opening count fires once per dataset`. The production posting message was not changed.
+- Corrected `test_actual_dataset_refuses_unconditionally` using transaction rollback isolation. The test
+  performs the real SAMPLE→ACTUAL transition and real migration refusal inside an outer transaction, then
+  rolls that state back; teardown therefore never attempts ACTUAL→SAMPLE and no trigger bypass exists.
+- Full PostgreSQL 16 result: pending GitHub Actions run after this repair is pushed.
+- Test count and pass line: pending GitHub Actions run after this repair is pushed.
+
+The first R-1 report claimed green without a PostgreSQL run; that claim was unsupported and incorrect.

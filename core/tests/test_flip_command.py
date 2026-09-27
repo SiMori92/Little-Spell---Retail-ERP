@@ -185,7 +185,7 @@ class EmptyActualDatabaseFirstPoTests(TestCase):
                 occurred_at=datetime(2026, 9, 28, 12, tzinfo=ZoneInfo("Asia/Taipei")),
                 idempotency_key="second-opening", payload=opening.payload,
                 source_filename="count_2026-09-28.csv", dataset_kind="ACTUAL")
-            with self.assertRaisesRegex(PostingError, "opening count already exists"):
+            with self.assertRaisesRegex(PostingError, "opening count fires once per dataset"):
                 post_event(second)
             import_po(po, commit=True)
 
