@@ -554,6 +554,14 @@ def import_ig_deals(path, *, commit: bool = False) -> IntakeResult:
     result.would_write_rows = new_rows + len(transitions)
     if not commit:
         return result
+    # History is inserted first so the database current-state trigger can prove
+    # every update is explained. The surrounding atomic block rolls both back together.
+    for deal_id, _old_status, row in transitions:
+        IgDealStatus.objects.create(
+            deal_id=deal_id, status=row["status"], effective_on=_ig_effective_on(row),
+            source_filename=path.name, dataset_kind=settings.dataset_kind,
+        )
+        result.inserted_rows += 1
     for deal_id, rows in by_deal.items():
         prior_by_line = {item.line_no: item for item in existing_by_deal.get(deal_id, [])}
         for row in rows:
@@ -571,12 +579,6 @@ def import_ig_deals(path, *, commit: bool = False) -> IntakeResult:
                 # ``product_id`` is a field attname rather than the model field name;
                 # a full save also keeps the status and its complete new snapshot atomic.
                 prior.save()
-    for deal_id, _old_status, row in transitions:
-        IgDealStatus.objects.create(
-            deal_id=deal_id, status=row["status"], effective_on=_ig_effective_on(row),
-            source_filename=path.name, dataset_kind=settings.dataset_kind,
-        )
-        result.inserted_rows += 1
     return result
 
 

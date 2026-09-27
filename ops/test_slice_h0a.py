@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from django.db import DatabaseError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -79,6 +80,11 @@ class InstagramDealTests(TestCase):
         self.assertEqual(result.inserted_rows, 1)
         self.assertEqual(IgDealStatus.objects.filter(deal_id="IG-202610-101").count(), 2)
         self.assertEqual(IgDeal.objects.get().status, "paid")
+
+    def test_database_refuses_unexplained_current_state_update(self):
+        import_ig_deals(self.source([self.one()]), commit=True)
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            IgDeal.objects.update(follow_up_on="2026-10-11")
 
     def test_backward_and_out_of_lost_are_refused(self):
         for index, (initial, later) in enumerate(

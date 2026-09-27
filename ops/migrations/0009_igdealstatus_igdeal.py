@@ -20,6 +20,53 @@ DROP TRIGGER IF EXISTS ops_igdealstatus_append_only ON ops_igdealstatus;
 DROP FUNCTION IF EXISTS ops_igdealstatus_append_only();
 """
 
+CURRENT_STATE_FORWARD_ONLY_SQL = """
+CREATE OR REPLACE FUNCTION ops_igdeal_forward_only() RETURNS trigger AS $$
+DECLARE
+    old_rank integer;
+    new_rank integer;
+BEGIN
+    old_rank := CASE OLD.status WHEN 'enquiry' THEN 0 WHEN 'quoted' THEN 1 WHEN 'paid' THEN 2
+        WHEN 'shipped' THEN 3 WHEN 'followed_up' THEN 4 WHEN 'lost' THEN 5 END;
+    new_rank := CASE NEW.status WHEN 'enquiry' THEN 0 WHEN 'quoted' THEN 1 WHEN 'paid' THEN 2
+        WHEN 'shipped' THEN 3 WHEN 'followed_up' THEN 4 WHEN 'lost' THEN 5 END;
+    IF NEW.status = OLD.status THEN
+        RAISE EXCEPTION 'ops_igdeal current state can change only with a forward status move';
+    END IF;
+    IF OLD.status = 'lost' OR (NEW.status <> 'lost' AND new_rank < old_rank) THEN
+        RAISE EXCEPTION 'ops_igdeal status cannot move backward from % to %', OLD.status, NEW.status;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM ops_igdealstatus
+        WHERE dataset_kind = NEW.dataset_kind AND deal_id = NEW.deal_id AND status = NEW.status
+    ) THEN
+        RAISE EXCEPTION 'ops_igdeal forward move requires its IgDealStatus history row';
+    END IF;
+    IF NEW.status IN ('paid', 'shipped', 'followed_up')
+       AND OLD.quote_twd IS NOT NULL AND OLD.quote_twd IS DISTINCT FROM NEW.quote_twd THEN
+        RAISE EXCEPTION 'ops_igdeal quote_twd cannot change once status >= paid';
+    END IF;
+    IF OLD.status IN ('paid', 'shipped', 'followed_up') AND (
+        OLD.product_id IS DISTINCT FROM NEW.product_id OR
+        OLD.qty_packs IS DISTINCT FROM NEW.qty_packs OR
+        OLD.unit_price_twd IS DISTINCT FROM NEW.unit_price_twd OR
+        OLD.wallet_txn_id IS DISTINCT FROM NEW.wallet_txn_id
+    ) THEN
+        RAISE EXCEPTION 'ops_igdeal paid fields cannot change once status >= paid';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER ops_igdeal_forward_only
+    BEFORE UPDATE ON ops_igdeal
+    FOR EACH ROW EXECUTE FUNCTION ops_igdeal_forward_only();
+"""
+
+CURRENT_STATE_FORWARD_ONLY_REVERSE_SQL = """
+DROP TRIGGER IF EXISTS ops_igdeal_forward_only ON ops_igdeal;
+DROP FUNCTION IF EXISTS ops_igdeal_forward_only();
+"""
+
 
 class Migration(migrations.Migration):
 
@@ -78,4 +125,5 @@ class Migration(migrations.Migration):
             ]},
         ),
         migrations.RunSQL(STATUS_APPEND_ONLY_SQL, STATUS_APPEND_ONLY_REVERSE_SQL),
+        migrations.RunSQL(CURRENT_STATE_FORWARD_ONLY_SQL, CURRENT_STATE_FORWARD_ONLY_REVERSE_SQL),
     ]
