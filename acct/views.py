@@ -34,6 +34,9 @@ REPORT_GROUPS = (
         ("ig-pipeline", "Instagram pipeline", "Follow-ups, consented journey steps and funnel conversion."),
         ("repeat-rate", "Repeat rate — Instagram only", "Customer repeat rate by first-paid cohort."),
     )},
+    {"id": "purchasing", "title": "Purchasing", "description": "Review supplier commitments raised by PO file.", "items": (
+        ("open-pos", "Open purchase orders", "Pieces and NT$ committed by supplier and SKU; drafts listed apart."),
+    )},
 )
 
 
@@ -102,7 +105,7 @@ def report_detail(request, slug):
     if builder is None:
         raise Http404("unknown report")
     try:
-        if slug == "ig-pipeline":
+        if slug in {"ig-pipeline", "open-pos"}:
             period = request.GET.get("as_of") or timezone.localtime(
                 timezone.now(), ZoneInfo("Asia/Taipei")).date().isoformat()
         else:

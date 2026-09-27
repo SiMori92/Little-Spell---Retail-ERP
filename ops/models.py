@@ -38,6 +38,10 @@ class Supplier(Provenance):
         ]
 
 
+PRODUCT_TYPES = ("sellable", "packaging")
+NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
 class Product(models.Model):
     sku = models.CharField(max_length=20, primary_key=True)
     name = models.CharField(max_length=100)
@@ -45,16 +49,25 @@ class Product(models.Model):
     pieces_per_sale_unit = models.PositiveIntegerField()
     supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT)
     ingredient_ref = models.CharField(max_length=255, default="UNKNOWN")
+    product_type = models.CharField(max_length=9, default="sellable",
+                                    choices=[(value, value) for value in PRODUCT_TYPES])
 
     class Meta:
         constraints = [
             models.CheckConstraint(condition=Q(uom="PC"), name="ops_product_piece_uom"),
             models.CheckConstraint(condition=Q(pieces_per_sale_unit__gte=1),
                                    name="ops_product_positive_pieces_per_sale_unit"),
+            models.CheckConstraint(condition=Q(product_type__in=PRODUCT_TYPES),
+                                   name="ops_product_type_allowed"),
+            # G-1 I-5: packaging carries NOT_APPLICABLE, and only packaging may.
             models.CheckConstraint(
-                condition=(Q(ingredient_ref="UNKNOWN") |
-                           (Q(ingredient_ref__startswith="compliance/suppliers/") &
-                            ~Q(ingredient_ref="compliance/suppliers/"))),
+                condition=(
+                    (Q(product_type="sellable") &
+                     (Q(ingredient_ref="UNKNOWN") |
+                      (Q(ingredient_ref__startswith="compliance/suppliers/") &
+                       ~Q(ingredient_ref="compliance/suppliers/")))) |
+                    Q(product_type="packaging", ingredient_ref=NOT_APPLICABLE)
+                ),
                 name="ops_product_ingredient_ref_shape",
             ),
         ]
@@ -155,6 +168,95 @@ class IgDealStatus(Provenance):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("Instagram deal status history is append-only")
+
+
+PO_STATUSES = ("draft", "sent", "acknowledged", "cancelled")
+PO_INCOTERMS = ("EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF")
+
+
+class PurchaseOrder(Provenance):
+    """A commitment to a supplier. G-1 posts nothing; receiving is G-2."""
+
+    po_number = models.CharField(max_length=11)
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
+    po_date = models.DateField()
+    target_delivery_date = models.DateField()
+    currency = models.CharField(max_length=3)
+    payment_terms = models.CharField(max_length=255)
+    incoterm = models.CharField(max_length=3, choices=[(value, value) for value in PO_INCOTERMS])
+    quote_ref = models.CharField(max_length=255)
+    status = models.CharField(max_length=12, choices=[(value, value) for value in PO_STATUSES])
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "po_number"], name="ops_po_dataset_number"),
+            models.CheckConstraint(condition=Q(po_number__regex=r"^PO-[0-9]{4}-[0-9]{3}$"),
+                                   name="ops_po_number_shape"),
+            models.CheckConstraint(condition=Q(status__in=PO_STATUSES), name="ops_po_status_allowed"),
+            models.CheckConstraint(condition=Q(incoterm__in=PO_INCOTERMS), name="ops_po_incoterm_allowed"),
+            # I-7: TWD only until the FX ruling (Agent 2 R-2.6, IFRIC 22) exists.
+            models.CheckConstraint(condition=Q(currency="TWD"), name="ops_po_currency_twd"),
+            models.CheckConstraint(condition=~Q(quote_ref=""), name="ops_po_quote_ref_required"),
+            models.CheckConstraint(condition=~Q(payment_terms=""), name="ops_po_payment_terms_required"),
+            models.CheckConstraint(condition=Q(target_delivery_date__gte=models.F("po_date")),
+                                   name="ops_po_target_after_po_date"),
+        ]
+
+
+class PurchaseOrderLine(Provenance):
+    """One SKU on a PO. Quantities are whole pieces; prices are per piece (F.6)."""
+
+    po = models.ForeignKey(PurchaseOrder, related_name="lines", on_delete=models.PROTECT)
+    line_no = models.PositiveIntegerField()
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    qty_pieces = models.PositiveIntegerField()
+    unit_price_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    setup_charge_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    line_total_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    min_order_qty_pieces = models.PositiveIntegerField(null=True, blank=True)
+    artwork_ref = models.CharField(max_length=255, blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["po", "line_no"], name="ops_po_line_once"),
+            models.CheckConstraint(condition=Q(line_no__gte=1), name="ops_po_line_positive"),
+            models.CheckConstraint(condition=Q(qty_pieces__gt=0), name="ops_po_line_positive_pieces"),
+            models.CheckConstraint(condition=Q(unit_price_twd__gt=0), name="ops_po_line_positive_price"),
+            models.CheckConstraint(condition=Q(setup_charge_twd__gte=0), name="ops_po_line_setup_nonnegative"),
+            # I-3: exact, per line. Integer pieces times a 4dp price is exact in numeric.
+            models.CheckConstraint(
+                condition=Q(line_total_twd=models.F("qty_pieces") * models.F("unit_price_twd")
+                            + models.F("setup_charge_twd")),
+                name="ops_po_line_total_identity",
+            ),
+            models.CheckConstraint(
+                condition=Q(min_order_qty_pieces__isnull=True) |
+                          Q(qty_pieces__gte=models.F("min_order_qty_pieces")),
+                name="ops_po_line_meets_moq",
+            ),
+            models.CheckConstraint(condition=~Q(evidence_ref=""), name="ops_po_line_evidence_required"),
+        ]
+
+
+class PurchaseOrderStatus(Provenance):
+    po_number = models.CharField(max_length=11)
+    status = models.CharField(max_length=12, choices=[(value, value) for value in PO_STATUSES])
+    effective_on = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "po_number", "status"],
+                                    name="ops_po_status_once"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise RuntimeError("purchase order status history is append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("purchase order status history is append-only")
 
 
 class Channel(models.Model):

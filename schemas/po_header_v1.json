@@ -1,0 +1,9 @@
+{
+  "kind": "po",
+  "source": "authored",
+  "verified": true,
+  "header": ["po_number", "supplier_ref", "po_date", "target_delivery_date", "currency", "payment_terms", "incoterm", "quote_ref", "status", "line_no", "sku", "qty_pieces", "unit_price_twd", "setup_charge_twd", "line_total_twd", "min_order_qty_pieces", "artwork_ref", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_po_PO-2026-001.csv",
+  "actual_filename_pattern": "po_PO-YYYY-NNN.csv"
+}

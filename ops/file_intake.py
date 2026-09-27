@@ -18,16 +18,18 @@ from acct.posting import PostingError, plan
 from core.models import DatasetSettings
 from ops.etsy_import import emit_event
 from ops.intake import ImportRefused, IntakeManifest, prepare_source
-from ops.models import (InventoryMove, LedgerEvent, Product, ProductComplianceChange,
-                        IgDeal, IgDealStatus, Order, Receipt, StockCount, StockCountLine,
-                        Supplier, SupplierChange)
+from ops.models import (NOT_APPLICABLE, PO_INCOTERMS, PO_STATUSES, PRODUCT_TYPES, InventoryMove,
+                        LedgerEvent, Product, ProductComplianceChange, IgDeal, IgDealStatus, Order,
+                        PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, Receipt, StockCount,
+                        StockCountLine, Supplier, SupplierChange)
+from ops.compliance import PoBlocked, assert_po_eligible
 from ops.pii import refuse_pii
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 RECEIPT_CATEGORIES = {"advertising", "rent", "software", "professional", "utilities",
                       "wages", "bank_fee", "other"}
 CONDITIONS = {"sellable", "damaged_unsellable"}
-INCOTERMS = {"EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"}
+INCOTERMS = set(PO_INCOTERMS)  # the G-0 enum, shared with purchase orders
 TAX_ID_STATES = {"yes", "no", "unknown"}
 COUNTRY_CODES = set(
     "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW".split()
@@ -36,6 +38,7 @@ CURRENCY_CODES = set(
     "AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BOV BRL BSD BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HRK HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SLL SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAF XAG XAU XBA XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG".split()
 )
 SKU_PATTERN = re.compile(r"TS-[A-Z]{2}-\d{3}-[SMLP]\Z")
+PACKAGING_SKU_PATTERN = re.compile(r"PKG-[A-Z]{2,8}-[A-Z]{2,4}\Z")
 DEAL_PATTERN = re.compile(r"IG-\d{6}-\d{3}\Z")
 CUSTOMER_PATTERN = re.compile(r"C-\d{4,}\Z")
 PHONE_PATTERN = re.compile(r"\+?\d[\d\s-]{7,}")
@@ -54,7 +57,7 @@ class IntakeResult:
 
 
 def load_schema(kind: str) -> dict:
-    version = 2 if kind in {"products", "counts", "ig_deals"} else 1
+    version = {"products": 3, "counts": 2, "ig_deals": 2}.get(kind, 1)
     fixture = json.loads((SCHEMAS / f"{kind}_header_v{version}.json").read_text())
     if fixture.get("source") not in {"authored", "observed"}:
         raise ImportRefused(f"{kind} schema fixture must declare source as authored or observed")
@@ -151,7 +154,7 @@ def _reference_manifest(kind: str, target_models: tuple[str, ...]) -> IntakeMani
         actual_filename=re.compile(rf"{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
         target_models=target_models, events=(), natural_key=f"dataset + {kind} natural key",
         sample_filename=re.compile(rf"SAMPLE_{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
-        version=2 if kind == "products" else 1,
+        version=3 if kind == "products" else 1,
     )
 
 
@@ -178,6 +181,24 @@ register_manifest("suppliers", lambda: _reference_manifest(
 register_manifest("products", lambda: _reference_manifest(
     "products", ("Product", "ProductComplianceChange")))
 register_manifest("ig_deals", _ig_manifest)
+
+
+def _po_manifest() -> IntakeManifest:
+    fixture = load_schema("po")
+    if fixture["source"] != "authored":
+        raise ImportRefused("po schema fixture must have source authored")
+    number = r"PO-\d{4}-\d{3}"
+    return IntakeManifest(
+        kind="po", header=tuple(fixture["header"]), optional_columns=(),
+        verified=fixture["verified"],
+        actual_filename=re.compile(rf"po_{number}\.csv\Z"),
+        sample_filename=re.compile(rf"SAMPLE_po_{number}\.csv\Z"),
+        target_models=("PurchaseOrder", "PurchaseOrderLine", "PurchaseOrderStatus"), events=(),
+        natural_key="dataset + po_number + line_no",
+    )
+
+
+register_manifest("po", _po_manifest)
 
 
 def _required(row: dict, field: str) -> str:
@@ -279,13 +300,23 @@ def import_suppliers(path, *, commit: bool = False) -> IntakeResult:
 def _product_row(row: dict, columns) -> dict:
     refuse_pii(row, columns)
     sku = _required(row, "sku")
-    if not SKU_PATTERN.fullmatch(sku):
-        raise ImportRefused(f"sku does not match the product mapping pattern: {sku}")
+    product_type = _required(row, "product_type")
+    if product_type not in PRODUCT_TYPES:
+        raise ImportRefused(f"product {sku} product_type must be sellable or packaging")
+    pattern = SKU_PATTERN if product_type == "sellable" else PACKAGING_SKU_PATTERN
+    if not pattern.fullmatch(sku):
+        raise ImportRefused(f"sku does not match the {product_type} product mapping pattern: {sku}")
     raw_qty = _required(row, "pieces_per_sale_unit")
     if not raw_qty.isdigit() or int(raw_qty) <= 0:
         raise ImportRefused(f"product {sku} pieces_per_sale_unit must be a positive whole number")
     ingredient = _required(row, "ingredient_ref")
-    if ingredient != "UNKNOWN" and not ingredient.startswith("compliance/suppliers/"):
+    if product_type == "packaging":
+        if ingredient != NOT_APPLICABLE:
+            raise ImportRefused(f"packaging product {sku} ingredient_ref must be {NOT_APPLICABLE}")
+    elif ingredient == NOT_APPLICABLE:
+        raise ImportRefused(f"sellable product {sku} ingredient_ref cannot be {NOT_APPLICABLE}; "
+                            "only packaging may carry it")
+    elif ingredient != "UNKNOWN" and not ingredient.startswith("compliance/suppliers/"):
         raise ImportRefused("ingredient_ref must be UNKNOWN or start with compliance/suppliers/")
     return {
         "sku": sku,
@@ -294,6 +325,7 @@ def _product_row(row: dict, columns) -> dict:
         "supplier_ref": row["supplier_ref"].strip(),
         "ingredient_ref": ingredient,
         "evidence_ref": _required(row, "evidence_ref"),
+        "product_type": product_type,
     }
 
 
@@ -315,7 +347,8 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
         raise ImportRefused(f"unknown supplier_ref: {', '.join(unknown)}")
     for row in parsed:
         supplier = suppliers.get(row["supplier_ref"])
-        if row["ingredient_ref"] != "UNKNOWN" and (supplier is None or not supplier.declaration_ref):
+        if row["ingredient_ref"].startswith("compliance/suppliers/") and (
+                supplier is None or not supplier.declaration_ref):
             raise ImportRefused(
                 f"product {row['sku']}: a product cannot be cleared by a supplier with no declaration on file"
             )
@@ -327,7 +360,7 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
             continue
         comparisons = {
             "name": row["name"], "pieces_per_sale_unit": row["pieces_per_sale_unit"],
-            "supplier": suppliers.get(row["supplier_ref"]),
+            "supplier": suppliers.get(row["supplier_ref"]), "product_type": row["product_type"],
         }
         for field, value in comparisons.items():
             if getattr(prior, field) != value:
@@ -345,6 +378,7 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
             sku=row["sku"], name=row["name"], uom="PC",
             pieces_per_sale_unit=row["pieces_per_sale_unit"],
             supplier=suppliers.get(row["supplier_ref"]), ingredient_ref=row["ingredient_ref"],
+            product_type=row["product_type"],
         )
         result.inserted_rows += 1
     for prior, row in changes:
@@ -844,3 +878,224 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
                 occurred_at=occurred_at, idempotency_key=candidate.idempotency_key,
                 payload=candidate.payload, source_filename=path.name, dataset_kind=settings.dataset_kind)
     return result
+
+
+PO_NUMBER_PATTERN = re.compile(r"PO-\d{4}-\d{3}\Z")
+PO_FORWARD = {"draft": ("sent", "cancelled"), "sent": ("acknowledged", "cancelled"),
+              "acknowledged": ("cancelled",), "cancelled": ()}
+# A PO is always created as draft; a file first seen later walks these steps.
+PO_STEPS_FROM_DRAFT = {"draft": (), "sent": ("sent",), "acknowledged": ("sent", "acknowledged"),
+                       "cancelled": ("cancelled",)}
+PO_HEADER_FIELDS = ("po_number", "supplier_ref", "po_date", "target_delivery_date", "currency",
+                    "payment_terms", "incoterm", "quote_ref", "status")
+PO_FROZEN_HEADER = ("supplier_ref", "currency", "quote_ref")
+PO_FROZEN_LINE = ("sku", "qty_pieces", "unit_price_twd", "setup_charge_twd")
+PO_LINE_FIELDS = PO_FROZEN_LINE + ("line_total_twd", "min_order_qty_pieces", "artwork_ref", "evidence_ref")
+
+
+def _whole_pieces(raw: str, field: str, context: str) -> int:
+    raw = raw.strip()
+    if not raw.isdigit() or int(raw) <= 0:
+        raise ImportRefused(f"{context} {field} must be a whole number of pieces > 0")
+    return int(raw)
+
+
+def _po_row(row: dict, columns) -> dict:
+    refuse_pii(row, columns)
+    po_number = _required(row, "po_number")
+    if not PO_NUMBER_PATTERN.fullmatch(po_number):
+        raise ImportRefused(f"po_number must match ^PO-\\d{{4}}-\\d{{3}}$: {po_number}")
+    raw_line = _required(row, "line_no")
+    if not raw_line.isdigit() or int(raw_line) < 1:
+        raise ImportRefused(f"PO {po_number} line_no must be an integer >= 1")
+    line_no = int(raw_line)
+    context = f"PO {po_number} line {line_no}"
+    status = _required(row, "status")
+    if status not in PO_STATUSES:
+        raise ImportRefused(f"PO {po_number} status must be draft, sent, acknowledged or cancelled: {status}")
+    incoterm = _required(row, "incoterm")
+    if incoterm not in INCOTERMS:
+        raise ImportRefused(f"PO {po_number} incoterm is not an allowed Incoterm: {incoterm}")
+    quote_ref = row["quote_ref"].strip()
+    if not quote_ref:
+        raise ImportRefused(f"PO {po_number} quote_ref is required; a PO accepts a supplier quote")
+    po_date = _date(_required(row, "po_date"), "po_date")
+    target = _date(_required(row, "target_delivery_date"), "target_delivery_date")
+    if target < po_date:
+        raise ImportRefused(f"PO {po_number} target_delivery_date {target} is before po_date {po_date}")
+    qty = _whole_pieces(row["qty_pieces"], "qty_pieces", context)
+    unit_price = _money(_required(row, "unit_price_twd"), "unit_price_twd")
+    if unit_price <= 0:
+        raise ImportRefused(f"{context} unit_price_twd must be a positive price per piece")
+    setup = _money(_required(row, "setup_charge_twd"), "setup_charge_twd")
+    total = _money(_required(row, "line_total_twd"), "line_total_twd")
+    expected = qty * unit_price + setup
+    if total != expected:
+        raise ImportRefused(
+            f"{context} line_total_twd {total} disagrees with qty_pieces x unit_price_twd + "
+            f"setup_charge_twd = {expected}"
+        )
+    raw_moq = row["min_order_qty_pieces"].strip()
+    moq = _whole_pieces(raw_moq, "min_order_qty_pieces", context) if raw_moq else None
+    if moq is not None and qty < moq:
+        raise ImportRefused(f"{context} qty_pieces {qty} is below min_order_qty_pieces {moq}")
+    return {
+        "po_number": po_number, "supplier_ref": _required(row, "supplier_ref"),
+        "po_date": po_date, "target_delivery_date": target,
+        "currency": _required(row, "currency"), "payment_terms": _required(row, "payment_terms"),
+        "incoterm": incoterm, "quote_ref": quote_ref, "status": status, "line_no": line_no,
+        "sku": _required(row, "sku"), "qty_pieces": qty, "unit_price_twd": unit_price,
+        "setup_charge_twd": setup, "line_total_twd": total, "min_order_qty_pieces": moq,
+        "artwork_ref": row["artwork_ref"].strip(), "evidence_ref": _required(row, "evidence_ref"),
+    }
+
+
+def _po_line_values(row: dict) -> dict:
+    values = {field: row[field] for field in PO_LINE_FIELDS if field != "sku"}
+    return {**values, "product_id": row["sku"]}
+
+
+def _stored_po_line(line: PurchaseOrderLine) -> dict:
+    return {field: (line.product_id if field == "sku" else getattr(line, field)) for field in PO_LINE_FIELDS}
+
+
+@transaction.atomic
+def import_po(path, *, commit: bool = False) -> IntakeResult:
+    """One file per PO. A PO is a commitment: this intake writes no ledger row (G-1 I-1)."""
+    path = Path(path)
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
+    source = manifest("po")
+    source_rows = prepare_source(path, settings.dataset_kind, source, commit=commit)
+    if not source_rows:
+        raise ImportRefused(f"PO file {path.name} has no lines")
+    parsed = [_po_row(row, source.header) for row in source_rows]
+    filename_number = path.name.removeprefix("SAMPLE_").removeprefix("po_").removesuffix(".csv")
+    for row in parsed:
+        if row["po_number"] != filename_number:
+            raise ImportRefused(f"po_number {row['po_number']} does not match filename PO number {filename_number}")
+    po_number = filename_number
+    for field in PO_HEADER_FIELDS:
+        if len({row[field] for row in parsed}) != 1:
+            raise ImportRefused(f"PO {po_number} has conflicting {field} across lines")
+    numbers = [row["line_no"] for row in parsed]
+    repeated = sorted({number for number in numbers if numbers.count(number) > 1})
+    if repeated:
+        raise ImportRefused(f"PO {po_number} repeats line_no {', '.join(map(str, repeated))}")
+    if sorted(numbers) != list(range(1, len(numbers) + 1)):
+        raise ImportRefused(f"PO {po_number} has line_no gaps")
+    header = parsed[0]
+    supplier = Supplier.objects.filter(dataset_kind=settings.dataset_kind,
+                                       supplier_ref=header["supplier_ref"]).first()
+    if supplier is None:
+        raise ImportRefused(f"unknown supplier_ref: {header['supplier_ref']}")
+    if header["currency"] != supplier.currency:
+        raise ImportRefused(f"PO {po_number} currency {header['currency']} must equal supplier "
+                            f"{supplier.supplier_ref} currency {supplier.currency}")
+    if header["currency"] != "TWD":
+        raise ImportRefused(f"PO {po_number} currency {header['currency']} is refused: a non-TWD PO needs "
+                            "the FX ruling (Agent 2 R-2.6, IFRIC 22), which does not exist yet")
+    skus = {row["sku"] for row in parsed}
+    unknown = sorted(skus - set(Product.objects.filter(pk__in=skus).values_list("pk", flat=True)))
+    if unknown:
+        raise ImportRefused(f"PO {po_number} has unknown sku(s): {', '.join(unknown)}")
+    status = header["status"]
+    if status in {"sent", "acknowledged"}:
+        try:
+            assert_po_eligible(skus)
+        except PoBlocked as exc:
+            raise ImportRefused(f"PO {po_number} cannot be {status}: {exc}") from exc
+
+    existing = PurchaseOrder.objects.select_for_update().filter(
+        dataset_kind=settings.dataset_kind, po_number=po_number).first()
+    header_values = {"supplier_id": supplier.pk, "po_date": header["po_date"],
+                     "target_delivery_date": header["target_delivery_date"],
+                     "currency": header["currency"], "payment_terms": header["payment_terms"],
+                     "incoterm": header["incoterm"], "quote_ref": header["quote_ref"]}
+    result = IntakeResult(parsed_rows=len(parsed))
+    if existing is None:
+        result.would_write_rows = 2 + len(parsed) + len(PO_STEPS_FROM_DRAFT[status])
+        if not commit:
+            return result
+        PurchaseOrderStatus.objects.create(po_number=po_number, status="draft",
+                                           effective_on=header["po_date"], source_filename=path.name,
+                                           dataset_kind=settings.dataset_kind)
+        po = PurchaseOrder.objects.create(po_number=po_number, status="draft", **header_values,
+                                          source_filename=path.name, dataset_kind=settings.dataset_kind)
+        for row in parsed:
+            PurchaseOrderLine.objects.create(po=po, line_no=row["line_no"], **_po_line_values(row),
+                                             source_filename=path.name, dataset_kind=settings.dataset_kind)
+        result.inserted_rows += 2 + len(parsed)
+        for step in PO_STEPS_FROM_DRAFT[status]:
+            _move_po(po, step, header["po_date"], path, settings.dataset_kind)
+            result.inserted_rows += 1
+        return result
+
+    old_status = existing.status
+    if status != old_status and status not in PO_FORWARD[old_status]:
+        suffix = "; nothing leaves cancelled" if old_status == "cancelled" else ""
+        raise ImportRefused(f"PO {po_number} status cannot move from {old_status} to {status}{suffix}")
+    prior_lines = {line.line_no: line for line in existing.lines.select_for_update()}
+    omitted = sorted(set(prior_lines) - set(numbers))
+    if omitted:
+        raise ImportRefused(f"PO {po_number} omits existing line_no(s): {', '.join(map(str, omitted))}; "
+                            "a missing line is not a deletion")
+    changed_header = [field for field, value in header_values.items() if getattr(existing, field) != value]
+    added = [row for row in parsed if row["line_no"] not in prior_lines]
+    changed_lines = []
+    for row in parsed:
+        prior = prior_lines.get(row["line_no"])
+        if prior is None:
+            continue
+        stored = _stored_po_line(prior)
+        fields = [field for field in PO_LINE_FIELDS if stored[field] != row[field]]
+        if fields:
+            changed_lines.append((prior, row, fields))
+    if old_status == "cancelled" and (changed_header or added or changed_lines):
+        raise ImportRefused(f"PO {po_number} is cancelled and cannot change")
+    if old_status in {"sent", "acknowledged"}:
+        for field in PO_FROZEN_HEADER:
+            model_field = "supplier_id" if field == "supplier_ref" else field
+            if model_field in changed_header:
+                raise ImportRefused(f"PO {po_number} {field} cannot change once sent")
+        if added:
+            raise ImportRefused(f"PO {po_number} line {added[0]['line_no']} cannot be added once sent")
+        for _prior, row, fields in changed_lines:
+            frozen = [field for field in PO_FROZEN_LINE if field in fields]
+            if frozen:
+                raise ImportRefused(f"PO {po_number} line {row['line_no']} {frozen[0]} cannot change once sent")
+    moving = status != old_status
+    result.would_write_rows = (len(changed_lines) + len(added) +
+                               (1 if changed_header or moving else 0) + (1 if moving else 0))
+    if not commit:
+        return result
+    # Lines first, while the stored PO still has its old status: the database lets a
+    # draft's lines change and refuses frozen fields after that.
+    for prior, row, _fields in changed_lines:
+        for field, value in _po_line_values(row).items():
+            setattr(prior, field, value)
+        prior.source_filename = path.name
+        prior.save()
+        result.inserted_rows += 1
+    for row in added:
+        PurchaseOrderLine.objects.create(po=existing, line_no=row["line_no"], **_po_line_values(row),
+                                         source_filename=path.name, dataset_kind=settings.dataset_kind)
+        result.inserted_rows += 1
+    if changed_header or moving:
+        for field, value in header_values.items():
+            setattr(existing, field, value)
+        existing.source_filename = path.name
+        if moving:
+            _move_po(existing, status, datetime.now(TZ).date(), path, settings.dataset_kind)
+            result.inserted_rows += 1
+        else:
+            existing.save()
+        result.inserted_rows += 1
+    return result
+
+
+def _move_po(po: PurchaseOrder, status: str, effective_on: date, path: Path, dataset_kind: str) -> None:
+    # History first: the database trigger refuses a status with no history row.
+    PurchaseOrderStatus.objects.create(po_number=po.po_number, status=status, effective_on=effective_on,
+                                       source_filename=path.name, dataset_kind=dataset_kind)
+    po.status = status
+    po.save()

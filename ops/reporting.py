@@ -1,4 +1,4 @@
-"""Read-only Instagram pipeline reports; deal lines are de-duplicated by deal_id."""
+"""Read-only operational reports: the Instagram pipeline and open purchase orders."""
 
 from collections import Counter, defaultdict
 from datetime import date, timedelta
@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from acct.reporting import Column, Report, ReportSection, absent, known, period_bounds
 from core.models import DatasetSettings
-from ops.models import IgDeal
+from ops.models import IgDeal, PurchaseOrderLine
 
 PAID = {"paid", "shipped", "followed_up"}
 QUOTED = {"quoted", *PAID}
@@ -118,4 +118,45 @@ def repeat_rate(period):
                   ["Instagram only — Etsy has no customer_ref yet."])
 
 
-REPORT_BUILDERS = {"ig-pipeline": ig_pipeline, "repeat-rate": repeat_rate}
+def open_pos(as_of_text):
+    """Open commitments by supplier and SKU. A PO is a commitment, not a ledger balance."""
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    columns = (Column("supplier", "Supplier", False), Column("sku", "SKU", False),
+               Column("po", "PO", False), Column("status", "Status", False),
+               Column("pieces", "Pieces on order"), Column("committed", "Committed NT$ excl. tax"),
+               Column("target", "Target date", False), Column("days", "Days to target"))
+    lines = (PurchaseOrderLine.objects.filter(dataset_kind=kind, po__status__in=["draft", "sent", "acknowledged"])
+             .select_related("po__supplier").order_by("po__supplier__supplier_ref", "product_id",
+                                                      "po__po_number", "line_no"))
+
+    def row(line):
+        po = line.po
+        return {"supplier": po.supplier.supplier_ref, "sku": line.product_id, "po": po.po_number,
+                "status": po.status, "pieces": known(line.qty_pieces, as_of_text, kind, unit="pcs"),
+                "committed": known(line.line_total_twd, as_of_text, kind),
+                "target": po.target_delivery_date.isoformat(),
+                "days": known((po.target_delivery_date - as_of).days, as_of_text, kind, unit="days")}
+
+    def total(rows, label):
+        return {"supplier": "TOTAL", "sku": "", "po": "", "status": label,
+                "pieces": known(sum((r["pieces"].amount for r in rows), Decimal(0)), as_of_text, kind, unit="pcs"),
+                "committed": known(sum((r["committed"].amount for r in rows), Decimal(0)), as_of_text, kind),
+                "target": "", "days": absent(as_of_text, kind, "a total has no single target date", unit="days")}
+
+    committed = [row(line) for line in lines if line.po.status in {"sent", "acknowledged"}]
+    drafts = [row(line) for line in lines if line.po.status == "draft"]
+    sections = (ReportSection("Open commitments (sent or acknowledged)", columns,
+                              committed + [total(committed, "committed")]),
+                ReportSection("Drafts — not committed", columns, drafts + [total(drafts, "draft, not committed")]))
+    return Report("open-pos", "Open purchase orders", as_of_text, kind, (), [],
+                  ["Committed = PO lines at sent or acknowledged. Drafts are listed apart and never counted "
+                   "as committed. Cancelled POs are excluded.",
+                   "NT$ is line_total_twd: qty_pieces x unit_price_twd + setup_charge_twd, excluding business "
+                   "tax (open question P-5).",
+                   "A PO is a commitment, not a liability. Nothing here is posted; receiving is G-2.",
+                   "Days to target is negative when the target date has passed."],
+                  sections, "as_of")
+
+
+REPORT_BUILDERS = {"ig-pipeline": ig_pipeline, "repeat-rate": repeat_rate, "open-pos": open_pos}

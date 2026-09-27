@@ -49,7 +49,8 @@ class SliceG0Tests(TestCase):
         events_before, lines_before = LedgerEvent.objects.count(), JournalLine.objects.count()
         first_supplier, first_product = self.load_sample_masters()
         second_supplier, second_product = self.load_sample_masters()
-        self.assertEqual((first_supplier.inserted_rows, first_product.inserted_rows), (1, 10))
+        # G-1: the samples now carry SUP-002/SUP-003 and the two packaging SKUs.
+        self.assertEqual((first_supplier.inserted_rows, first_product.inserted_rows), (3, 12))
         self.assertEqual((second_supplier.inserted_rows, second_product.inserted_rows), (0, 0))
         self.assertEqual((SupplierChange.objects.count(), ProductComplianceChange.objects.count()), (0, 0))
         self.assertEqual((LedgerEvent.objects.count(), JournalLine.objects.count()),
@@ -61,16 +62,16 @@ class SliceG0Tests(TestCase):
         with self.assertRaisesRegex(ImportRefused, "PII detected in payment_terms"):
             import_suppliers(self.source("suppliers", "SAMPLE_suppliers_2026-09-28.csv", pii))
         import_suppliers(SAMPLES / "SAMPLE_suppliers_2026-09-27.csv", commit=True)
-        renamed = [{**rows[0], "legal_name": "Changed Supplier"}]
+        renamed = [{**rows[0], "legal_name": "Changed Supplier"}, *rows[1:]]
         with self.assertRaisesRegex(ImportRefused, "supplier field legal_name cannot change"):
             import_suppliers(self.source("suppliers", "SAMPLE_suppliers_2026-09-28.csv", renamed), commit=True)
         Supplier.objects.create(
-            supplier_ref="SUP-002", legal_name="Second Synthetic Supplier", country="TW",
+            supplier_ref="SUP-004", legal_name="Fourth Synthetic Supplier", country="TW",
             currency="TWD", default_incoterm="EXW", payment_terms="Prepaid",
             can_invoice_to_tax_id="unknown", declaration_ref="", evidence_ref="synthetic",
             source_filename="SAMPLE_suppliers_2026-09-27.csv", dataset_kind="SAMPLE",
         )
-        with self.assertRaisesRegex(ImportRefused, "a missing supplier is not a deletion: SUP-002"):
+        with self.assertRaisesRegex(ImportRefused, "a missing supplier is not a deletion: SUP-004"):
             import_suppliers(self.source("suppliers", "SAMPLE_suppliers_2026-09-28.csv", rows), commit=True)
 
     def test_product_declaration_guard_and_filename_classification(self):
@@ -89,7 +90,10 @@ class SliceG0Tests(TestCase):
     def test_po_guard_names_all_then_only_the_remaining_nine(self):
         self.load_sample_masters()
         accounting_before = (LedgerEvent.objects.count(), JournalLine.objects.count())
-        all_skus = list(Product.objects.order_by("sku").values_list("sku", flat=True))
+        # G-1 I-5: packaging SKUs pass on product + supplier alone, so the
+        # declaration guard is exercised on the sellable SKUs.
+        all_skus = list(Product.objects.filter(product_type="sellable").order_by("sku")
+                        .values_list("sku", flat=True))
         with self.assertRaises(PoBlocked) as blocked:
             assert_po_eligible(all_skus)
         self.assertTrue(all(sku in str(blocked.exception) for sku in all_skus))

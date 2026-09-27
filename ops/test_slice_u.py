@@ -47,13 +47,13 @@ class UnitVocabularyTests(TestCase):
 
     def test_v1_unit_headers_are_refused_by_old_and_required_field_names(self):
         cases = (
-            ("products", import_products, "pack_qty", "pieces_per_sale_unit"),
-            ("counts", import_counts, "qty_packs", "qty_pieces"),
-            ("ig_deals", import_ig_deals, "qty_packs", "qty_sale_units"),
+            ("products", import_products, "pack_qty", 3, "pieces_per_sale_unit"),  # v3 since G-1
+            ("counts", import_counts, "qty_packs", 2, "qty_pieces"),
+            ("ig_deals", import_ig_deals, "qty_packs", 2, "qty_sale_units"),
         )
-        for kind, importer, old, new in cases:
+        for kind, importer, old, version, new in cases:
             with self.subTest(kind=kind), self.assertRaisesRegex(
-                    ImportRefused, rf"{kind} file uses header v1 \({old}\); v2 requires {new}"):
+                    ImportRefused, rf"{kind} file uses header v1 \({old}\); v{version} requires {new}"):
                 importer(self.old_header(kind, old))
 
     def test_models_expose_only_piece_or_sale_unit_quantity_names(self):

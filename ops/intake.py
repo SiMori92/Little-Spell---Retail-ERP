@@ -65,11 +65,16 @@ def read_csv(path: Path, manifest: IntakeManifest) -> list[dict]:
                     "counts": ("qty_packs", "qty_pieces"),
                     "ig_deals": ("qty_packs", "qty_sale_units"),
                 }.get(manifest.kind)
-                if manifest.version == 2 and legacy and legacy[0] in observed:
+                if manifest.version >= 2 and legacy and legacy[0] in observed:
                     raise ImportRefused(
                         f"{manifest.kind} file uses header v1 ({legacy[0]}); "
-                        f"v2 requires {legacy[1]}"
+                        f"v{manifest.version} requires {legacy[1]}"
                     )
+                # Products v3 (G-1) appends product_type; a v2 file is refused by name.
+                if (manifest.kind == "products" and manifest.version == 3
+                        and "product_type" not in observed and observed == required[:-1]):
+                    raise ImportRefused("products file uses header v2 (no product_type); "
+                                        "v3 requires product_type")
                 all_expected = set(required + list(manifest.optional_columns))
                 missing = sorted(set(required) - set(observed))
                 added = sorted(set(observed) - all_expected)

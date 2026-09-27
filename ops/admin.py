@@ -4,8 +4,8 @@ from django.contrib import admin
 
 from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, IgDeal,
                         IgDealStatus, InventoryMove, LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
-                        ProductComplianceChange, Receipt, Shipment, StockCount,
-                        StockCountLine, Supplier, SupplierChange)
+                        ProductComplianceChange, PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus,
+                        Receipt, Shipment, StockCount, StockCountLine, Supplier, SupplierChange)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -51,8 +51,8 @@ class IngredientUnknownFilter(admin.SimpleListFilter):
 
 @admin.register(Product)
 class ProductAdmin(ReadOnlyAdmin):
-    list_display = ("sku", "name", "uom", "pieces_per_sale_unit", "supplier", "ingredient_ref")
-    list_filter = (IngredientUnknownFilter,)
+    list_display = ("sku", "name", "product_type", "uom", "pieces_per_sale_unit", "supplier", "ingredient_ref")
+    list_filter = ("product_type", IngredientUnknownFilter)
     search_fields = ("sku", "name")
 
 
@@ -92,6 +92,29 @@ class IgDealStatusAdmin(ReadOnlyAdmin):
     list_display = ("deal_id", "status", "effective_on", "source_filename", "dataset_kind")
     list_filter = ("status", "effective_on", "dataset_kind")
     search_fields = ("deal_id", "source_filename")
+
+
+@admin.register(PurchaseOrder)
+class PurchaseOrderAdmin(ReadOnlyAdmin):
+    list_display = ("po_number", "supplier", "status", "po_date", "target_delivery_date",
+                    "currency", "incoterm", "quote_ref", "dataset_kind")
+    list_filter = ("supplier", "status", "lines__product", "dataset_kind")
+    search_fields = ("po_number", "quote_ref", "source_filename")
+
+
+@admin.register(PurchaseOrderLine)
+class PurchaseOrderLineAdmin(ReadOnlyAdmin):
+    list_display = ("po", "line_no", "product", "qty_pieces", "unit_price_twd",
+                    "setup_charge_twd", "line_total_twd", "evidence_ref")
+    list_filter = ("po__supplier", "po__status", "product", "dataset_kind")
+    search_fields = ("po__po_number", "product__sku", "evidence_ref", "artwork_ref")
+
+
+@admin.register(PurchaseOrderStatus)
+class PurchaseOrderStatusAdmin(ReadOnlyAdmin):
+    list_display = ("po_number", "status", "effective_on", "source_filename", "dataset_kind")
+    list_filter = ("status", "effective_on", "dataset_kind")
+    search_fields = ("po_number", "source_filename")
 
 
 @admin.register(Channel)

@@ -1,2 +1,4 @@
 supplier_ref,legal_name,country,currency,default_incoterm,payment_terms,can_invoice_to_tax_id,declaration_ref,evidence_ref
 SUP-001,Synthetic Sample Supplier,TW,TWD,EXW,Payment before production,unknown,,sample supplier master 2026-09-27
+SUP-002,Formosa Foil & Crafting (寶島箔藝),TW,TWD,EXW,"30% Deposit, 70% Net 30",unknown,,founder PO workbook Little_Spell_PO_Master_Data.xlsx vendor V-OEM-02
+SUP-003,Taiwan Eco-Pack Co. (台灣綠色包裝),TW,TWD,DDP,Net 15 Days,unknown,,founder PO workbook Little_Spell_PO_Master_Data.xlsx vendor V-PKG-01
