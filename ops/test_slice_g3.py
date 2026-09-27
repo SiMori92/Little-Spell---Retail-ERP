@@ -203,7 +203,8 @@ class EndToEndLedgerTests(SupplierPaymentBase):
         self.assertEqual((rows[0]["computed"].amount, rows[0]["stated"].amount,
                           rows[0]["difference"].amount),
                          (D("17400.0000"), D("17000.0000"), D("-400.0000")))
-        applied_lines = JournalLine.objects.filter(entry=event.posted_entry, account_id__in=["2171", "1266"])
+        applied_lines = JournalLine.objects.filter(entry_id=event.posted_entry_id,
+                                                   account_id__in=["2171", "1266"])
         self.assertTrue(all(line.debit == D("17400.0000") or line.credit == D("17400.0000") or
                             line.credit == D("60900.0000") for line in applied_lines))
 
