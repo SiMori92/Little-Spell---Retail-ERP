@@ -205,7 +205,8 @@ Date: 2026-09-28 HKT
 Resolves: `GATE_R2_RESULT.md` finding **F-1** (packaging counted into `1231`), against catalogue E.6 item 4 and
 Addendum G.1/G.2.
 
-Branch: `claude/packaging-stock-count-1233-8f9f8b`, fast-forwarded onto `main`
+Branch: `claude/packaging-stock-count-1233-8f9f8b` (pushed). It fast-forwards from `main` at `a9f7960`; moving
+`main` is left to the founder's review.
 
 Gate base: `a9f7960`
 
