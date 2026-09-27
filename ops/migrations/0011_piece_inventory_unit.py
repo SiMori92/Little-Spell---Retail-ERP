@@ -69,9 +69,15 @@ def refuse_unsafe_data(apps, schema_editor):
 
 
 def rewrite_product_uom(apps, schema_editor):
-    """Run only after the old PK check has been removed."""
+    """Run only after every old check has been removed; the PC check is added later."""
     Product = apps.get_model("ops", "Product")
     Product.objects.update(uom="PC")
+
+
+def restore_product_uom(apps, schema_editor):
+    # Reverse runs after the PC check is dropped and before the PK check returns.
+    Product = apps.get_model("ops", "Product")
+    Product.objects.update(uom="PK")
 
 
 IG_TRIGGER_V2 = """
@@ -124,9 +130,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Order matters (U.1): 1) refuse before anything changes; 2) drop every
+        # constraint that names or rejects the new values; 3) only then rewrite
+        # data and rename columns; 4) add the piece constraints last.
         migrations.RunPython(refuse_unsafe_data, migrations.RunPython.noop),
         migrations.RemoveConstraint("product", "ops_product_pack_uom"),
-        migrations.RunPython(rewrite_product_uom, migrations.RunPython.noop),
         migrations.RemoveConstraint("product", "ops_product_positive_pack_qty"),
         migrations.RemoveConstraint("igdeal", "ops_ig_deal_qty_positive"),
         migrations.RemoveConstraint("orderline", "ops_line_positive_qty"),
@@ -134,6 +142,7 @@ class Migration(migrations.Migration):
         migrations.RemoveConstraint("inventorymove", "ops_move_nonzero"),
         migrations.RemoveConstraint("inventorymove", "ops_move_sign_discipline"),
         migrations.RemoveConstraint("inventorymove", "ops_move_value_sign"),
+        migrations.RunPython(rewrite_product_uom, restore_product_uom),
         migrations.RenameField("product", "pack_qty", "pieces_per_sale_unit"),
         migrations.RenameField("igdeal", "qty_packs", "qty_sale_units"),
         migrations.RenameField("orderline", "qty_packs", "qty_sale_units"),

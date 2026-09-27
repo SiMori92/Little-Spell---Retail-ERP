@@ -348,6 +348,9 @@ def po_paid(e):
 
 
 def inventory_adjusted(e):
+    if "qty" in e.payload:
+        raise PostingError("inventory adjustment payload field qty was renamed to qty_pieces "
+                           "(catalogue Addendum F.2)")
     if e.payload.get("qty_pieces") is None:
         raise PostingError("inventory adjustment qty_pieces is required")
     if not e.payload.get("evidence_ref") or not e.payload.get("sku"):

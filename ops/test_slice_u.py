@@ -1,19 +1,23 @@
 """Slice U contract tests: pieces for stock, sale units for customer quantities."""
 
 import csv
+from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.db import IntegrityError, connection, transaction
+from django.db.migrations import AddConstraint, RemoveConstraint, RunPython
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import TestCase, TransactionTestCase
 
 from acct.models import JournalLine, MANUAL_EVENT_TYPES, WacPosition
+from acct.posting import PostingError, plan
 from core.models import DatasetSettings
 from ops.file_intake import import_counts, import_ig_deals, import_products
 from ops.intake import ImportRefused
-from ops.models import OPS_EVENT_TYPES, IgDeal, InventoryMove, OnHand, OrderLine, Product, StockCountLine
+from ops.models import (OPS_EVENT_TYPES, IgDeal, InventoryMove, LedgerEvent, OnHand, OrderLine,
+                        Product, StockCountLine)
 
 
 class UnitVocabularyTests(TestCase):
@@ -83,7 +87,6 @@ class UnitVocabularyTests(TestCase):
 
 
 class UnitMigrationRefusalTests(TransactionTestCase):
-    reset_sequences = True
     migrate_from = [("ops", "0010_igdeal_date_order"),
                     ("acct", "0006_remove_journalline_acct_line_one_side_and_more")]
     migrate_to = [("ops", "0011_piece_inventory_unit")]
@@ -112,9 +115,19 @@ class UnitMigrationRefusalTests(TransactionTestCase):
         )
         super().tearDown()
 
-    def test_factor_one_product_and_inventory_move_migrate_forward_in_place(self):
+    def test_populated_factor_one_database_migrates_forward_in_place(self):
+        # I-9: a database that already holds products (as the Railway SAMPLE
+        # database does) must migrate. 81c9867 failed here with CheckViolation on
+        # ops_product_pack_uom because uom was rewritten before the check was dropped.
         safe = self.OldProduct.objects.create(
             sku="TS-FL-001-S", name="Safe factor one", uom="PK", pack_qty=1
+        )
+        self.OldProduct.objects.create(
+            sku="TS-FL-002-S", name="Second factor one", uom="PK", pack_qty=1
+        )
+        # A factor-12 SKU holding no unit-bearing row is not pack data (I-7).
+        self.OldProduct.objects.create(
+            sku="TS-MN-006-P", name="Factor twelve, no rows", uom="PK", pack_qty=12
         )
         self.OldMove.objects.create(
             product=safe, kind="opening", qty_delta_packs=7, value_delta_twd=35,
@@ -125,12 +138,19 @@ class UnitMigrationRefusalTests(TransactionTestCase):
         new_apps = MigrationExecutor(connection).loader.project_state(self.migrate_to).apps
         NewProduct = new_apps.get_model("ops", "Product")
         NewMove = new_apps.get_model("ops", "InventoryMove")
-        migrated = NewProduct.objects.get(pk=safe.pk)
         self.assertEqual(
-            (migrated.uom, migrated.pieces_per_sale_unit,
-             NewMove.objects.get(idempotency_key="migration-safe").qty_delta_pieces),
-            ("PC", 1, 7),
+            sorted(NewProduct.objects.values_list("sku", "uom", "pieces_per_sale_unit")),
+            [("TS-FL-001-S", "PC", 1), ("TS-FL-002-S", "PC", 1), ("TS-MN-006-P", "PC", 12)],
         )
+        move = NewMove.objects.get(idempotency_key="migration-safe")
+        self.assertEqual((move.product_id, move.qty_delta_pieces, move.value_delta_twd),
+                         ("TS-FL-001-S", 7, 35))
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT qty_pieces FROM ops_on_hand WHERE sku = %s", ["TS-FL-001-S"])
+            self.assertEqual(cursor.fetchone()[0], 7)
+        # The new piece check is live after the migration, not only in model state.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            NewProduct.objects.filter(pk=safe.pk).update(uom="PK")
 
     def test_factor_twelve_inventory_move_refuses_with_verbatim_i7_message(self):
         product = self.OldProduct.objects.create(
@@ -152,3 +172,29 @@ class UnitMigrationRefusalTests(TransactionTestCase):
         self.settings.save(update_fields=["dataset_kind"])
         with self.assertRaisesRegex(RuntimeError, "Unit migration refused: ACTUAL dataset rows exist"):
             MigrationExecutor(connection).migrate(self.migrate_to)
+
+
+class UnitMigrationOrderTests(TestCase):
+    def test_refusal_first_constraints_dropped_before_rewrite_and_added_after(self):
+        module = import_module("ops.migrations.0011_piece_inventory_unit")
+        operations = module.Migration.operations
+        self.assertIs(operations[0].code, module.refuse_unsafe_data)
+        rewrite = next(i for i, op in enumerate(operations)
+                       if isinstance(op, RunPython) and op.code is module.rewrite_product_uom)
+        removes = [i for i, op in enumerate(operations) if isinstance(op, RemoveConstraint)]
+        adds = [i for i, op in enumerate(operations) if isinstance(op, AddConstraint)]
+        self.assertTrue(removes and adds)
+        self.assertLess(max(removes), rewrite)
+        self.assertLess(rewrite, min(adds))
+
+
+class OldPayloadNameTests(TestCase):
+    def test_inventory_adjusted_old_qty_is_refused_by_name(self):
+        event = LedgerEvent(
+            event_type="inventory.adjusted", entity_table="ops.stockcountline", entity_id=1,
+            occurred_at="2026-09-27T00:00:00Z", amount_minor=None, currency="TWD",
+            payload={"evidence_ref": "old", "sku": "TS-FL-001-S", "qty": "1"},
+            idempotency_key="old-qty", source_filename="synthetic", dataset_kind="SAMPLE",
+        )
+        with self.assertRaisesRegex(PostingError, r"field qty was renamed to qty_pieces"):
+            plan(event)
