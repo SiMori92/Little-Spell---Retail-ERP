@@ -129,3 +129,15 @@ The new manifests declare no events, neither importer calls `emit_event`, and no
 - Native PostgreSQL tests: not runnable locally because port 5432 refused the connection.
 
 **Real elapsed clock time:** 6 hours 12 minutes, from 03:51 to 10:04 HKT on 2026-09-27, including review, environment diagnosis, and test fallback work.
+
+## G-0.1 — fail-closed PO compliance
+
+The gate finding is fixed. `assert_po_eligible` is now an allowlist: a requested SKU passes only when the Product exists, its `ingredient_ref` is a nonempty path below `compliance/suppliers/`, it has a Supplier, and that Supplier's `declaration_ref` is also a nonempty path below the same prefix. Every other state is collected into the same single `PoBlocked` exception, so the guard still names all blocked SKUs in one call.
+
+Migration `ops/migrations/0008_product_supplier_compliance_ref_shape.py` adds `ops_product_ingredient_ref_shape` and `ops_supplier_declaration_ref_shape`. The Product constraint permits only `UNKNOWN` or a nonempty compliance path; the Supplier constraint permits only blank or a nonempty compliance path. Existing SAMPLE rows satisfy both constraints.
+
+The PostgreSQL-specific test migrates to `0007`, writes each defect value (`''`, `unknown`, `TBD`, `pending`, and a prefix-only Product path) with `queryset.update()`, and proves the guard blocks it. It then migrates forward to `0008` and proves the corresponding updates raise `IntegrityError`. A prefix-only Supplier declaration is likewise blocked by the guard and refused by the database constraint. The original G-0 tests remain unchanged and pass.
+
+**PostgreSQL CI:** GitHub Actions run **36293022790** passed on PostgreSQL 16: migration `0008` applied, migration drift was zero, and all **173 tests** passed. Code commit: `5269508`.
+
+**G-0.1 elapsed time:** 3 minutes 27 seconds, from 11:58:09 to 12:01:36 HKT on 2026-09-27, including pre-flight, implementation, local checks, push, and PostgreSQL CI.
