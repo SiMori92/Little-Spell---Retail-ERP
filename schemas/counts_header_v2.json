@@ -1,7 +1,7 @@
 {
   "kind": "counts",
   "source": "authored",
-  "verified": false,
+  "verified": true,
   "header": ["counted_at", "evidence_ref", "sku", "qty_pieces", "agreed_unit_cost_twd", "condition"],
   "optional_columns": [],
   "sample_filename": "SAMPLE_count_2025-03-27.csv",

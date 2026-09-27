@@ -12,9 +12,15 @@ Deploy Slice U only after resetting the SAMPLE database. The migration deliberat
    1. `docs/samples/SAMPLE_suppliers_2026-09-27.csv`
    2. `docs/samples/SAMPLE_products_2026-09-27.csv`
    3. any v2 opening count file (`qty_pieces`, with cost per piece)
-   4. the Etsy sample order-items and statement pair
-   5. `docs/samples/SAMPLE_ig_deals_2026-10.csv`
-   6. any other SAMPLE receipts or later counts
+   4. `docs/samples/SAMPLE_ig_deals_2026-10.csv`
+   5. any other SAMPLE receipts or later counts
 6. Re-run posting and the close gates. Confirm the inventory roll-forward displays `pcs` and the contribution reports display `sale units`.
+
+### Correction — orchestrator defect 21
+
+The earlier re-import list incorrectly included the Etsy sample order-items and statement pair. Those two
+fixtures remain `verified: false` until a real export pair exists, so they cannot be committed on SAMPLE and
+do not belong in a re-import procedure. Authored receipts v1 and counts v2 are now verified and may be
+committed; Etsy remains dry-run only.
 
 The v1 product, count, and Instagram headers are intentionally rejected. Do not rename a v1 column without converting count quantities and per-unit costs as required by Catalogue Addendum F.

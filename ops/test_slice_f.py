@@ -52,7 +52,7 @@ class FileIntakeTests(TestCase):
         row.update(changes)
         return row
 
-    def test_unclassified_names_and_unverified_fixtures_refuse_every_kind(self):
+    def test_unclassified_names_refuse_but_authored_receipts_and_counts_commit(self):
         paths = (
             ("counts", self.source("counts", "mystery.csv", self.count_rows()), import_counts),
             ("receipts", self.source("receipts", "wrong.csv", [self.receipt_row()]), import_receipts),
@@ -62,10 +62,9 @@ class FileIntakeTests(TestCase):
                 intake(path)
         count = self.source("counts", "SAMPLE_count.csv", self.count_rows())
         receipt = self.source("receipts", "SAMPLE_receipts.csv", [self.receipt_row()])
-        for kind, path, intake in (("counts", count, import_counts),
-                                   ("receipts", receipt, import_receipts)):
-            with self.subTest(kind=kind), self.assertRaisesRegex(ImportRefused, "schema fixture is unverified"):
-                intake(path, commit=True)
+        count_result = import_counts(count, commit=True)
+        receipt_result = import_receipts(receipt, commit=True)
+        self.assertEqual((count_result.inserted_events, receipt_result.inserted_events), (1, 1))
 
     def test_receipt_refusals_are_postable_rule_boundaries(self):
         cases = (
@@ -82,9 +81,8 @@ class FileIntakeTests(TestCase):
 
     def test_receipt_reimport_inserts_nothing_and_keeps_natural_key(self):
         path = self.source("receipts", "SAMPLE_receipts.csv", [self.receipt_row()])
-        with self.verified():
-            first = import_receipts(path, commit=True)
-            second = import_receipts(path, commit=True)
+        first = import_receipts(path, commit=True)
+        second = import_receipts(path, commit=True)
         self.assertEqual((first.inserted_rows, first.inserted_events), (1, 1))
         self.assertEqual((second.inserted_rows, second.inserted_events), (0, 0))
         self.assertEqual(Receipt.objects.count(), 1)
@@ -95,8 +93,7 @@ class FileIntakeTests(TestCase):
         row = self.receipt_row(category="advertising", settled_via="bank",
                                channel_attribution="meta", bank_account="1121")
         path = self.source("receipts", "SAMPLE_advertising.csv", [row], columns=columns)
-        with self.verified():
-            result = import_receipts(path, commit=True)
+        result = import_receipts(path, commit=True)
         event = LedgerEvent.objects.get(event_type="cost.recorded")
         self.assertEqual((result.inserted_rows, result.inserted_events), (1, 1))
         self.assertEqual(event.payload["channel_attribution"], "meta")
@@ -107,9 +104,8 @@ class FileIntakeTests(TestCase):
         with self.assertRaisesRegex(ImportRefused, "omits active SKU.*SYN-B"):
             import_counts(missing)
         path = self.source("counts", "SAMPLE_count.csv", self.count_rows())
-        with self.verified():
-            first = import_counts(path, commit=True)
-            second = import_counts(path, commit=True)
+        first = import_counts(path, commit=True)
+        second = import_counts(path, commit=True)
         self.assertEqual((first.inserted_rows, first.inserted_events), (5, 1))
         self.assertEqual((second.inserted_rows, second.inserted_events), (0, 0))
         self.assertEqual(StockCountLine.objects.get(product_id="SYN-B").qty_pieces, 0)

@@ -612,7 +612,7 @@ def apply_wac(event, lines):
 
 
 @transaction.atomic
-def post_event(event):
+def post_event(event, *, dataset_kind_override=None):
     if event.posted_entry_id:
         return event.posted_entry_id
     if isinstance(event, LedgerEvent) and event.event_type == "order.shipped" and not LedgerEvent.objects.filter(
@@ -626,7 +626,8 @@ def post_event(event):
     source_kind = "ops" if isinstance(event, LedgerEvent) else "manual"
     source_ref = f"{source_kind}:{event.idempotency_key}"
     entry = JournalEntry.objects.create(occurred_at=event.occurred_at, period=period,
-        dataset_kind=event.dataset_kind if source_kind == "ops" else DatasetSettings.load().dataset_kind,
+        dataset_kind=(event.dataset_kind if source_kind == "ops" else
+                      dataset_kind_override or DatasetSettings.load().dataset_kind),
         source_kind=source_kind, source_ref=source_ref, memo_only=memo_only,
         memo="No financial entry: duty position DDU or unknown" if memo_only else "")
     for item in lines or ():

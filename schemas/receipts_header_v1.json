@@ -1,7 +1,7 @@
 {
   "kind": "receipts",
   "source": "authored",
-  "verified": false,
+  "verified": true,
   "header": ["occurred_on", "category", "amount_twd", "settled_via", "evidence_ref", "description"],
   "optional_columns": ["channel_attribution", "bank_account"],
   "sample_filename": "SAMPLE_receipts_2025-03.csv",

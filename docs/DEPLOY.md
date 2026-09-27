@@ -1,16 +1,13 @@
 # Deploying to Railway — `uat`
 
-One environment, named `uat`. KICKSTART §0.3: two environments on Hobby eat the $5
-credit, and with zero orders there is only synthetic data to protect.
+The original environment is named `uat` and remains SAMPLE permanently. When going live, create the
+separate `production` environment described below; it has its own web service, secrets, and empty database.
 
 ## The rule that comes with one environment
 
-> **No real customer or order data enters this environment until a second
-> environment exists.**
+> **No real customer or order data ever enters the UAT environment.**
 
-KICKSTART §0.3. The day the first real Etsy export is imported, this UAT silently
-becomes production — and a single-environment production with `main` auto-deploying
-migrations is how you lose your books.
+UAT is not converted in place. Production starts separately, so SAMPLE rows can never sit beside real rows.
 
 **This rule also belongs in `../RUNBOOK.md`**, which is outside this repository and
 which this build deliberately did not edit. Copy it across.
@@ -147,3 +144,73 @@ ops_scripts/restore_test.sh ~/ledger-backups/uat-<stamp>.sql.gz
 
 Restore-test it and write the elapsed time into `docs/SLICE_0_REPORT.md`.
 An untested backup is a belief, not a control.
+
+## Going live
+
+Production is a separate Railway environment, with a separate web service and a new, empty PostgreSQL
+database. Never flip the UAT database: it has held SAMPLE rows and stays SAMPLE permanently.
+
+1. In Railway, create an environment named `production`. Inside that environment create a new web service
+   from `SiMori92/Little-Spell---Retail-ERP` and add a new PostgreSQL service. Do not clone or attach the UAT
+   database.
+2. Generate a key that has never been used by UAT or locally, and generate a separate database password:
+
+   ```bash
+   uv run python -c "import secrets; print(secrets.token_urlsafe(50))"
+   uv run python -c "import secrets; print(secrets.token_urlsafe(40))"
+   ```
+
+3. Set production web variables: `DJANGO_SECRET_KEY` to the first generated value,
+   `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `DJANGO_DEBUG=0`, and the appropriate
+   `DJANGO_DB_SSL_REQUIRE`. Set the new Postgres password on the production Postgres service. Never paste
+   either secret into this repository, evidence text, command output, or a ticket.
+4. Link the CLI to the `production` environment and initialise only the empty production database:
+
+   ```bash
+   railway link
+   railway environment production
+   railway run uv run python manage.py migrate
+   railway run uv run python manage.py apply_table_grants
+   railway run uv run python manage.py createsuperuser
+   railway run uv run python manage.py record_secret_rotation \
+     --actor '<founder-or-operator>' \
+     --evidence-ref '<vault-rotation-record>' \
+     --db-password-rotated
+   ```
+
+5. Preview every go-live precondition. Opening funding type is mandatory and is never defaulted:
+
+   ```bash
+   railway run uv run python manage.py flip_dataset_to_actual \
+     --amount '<opening-TWD-to-4dp>' \
+     --funding-type '<capital-or-loan>' \
+     --actor '<founder-or-operator>' \
+     --evidence-ref '<signed-opening-funding-evidence>' \
+     --dry-run
+   ```
+
+   Every line must say `PASS`. Resolve any `FAIL`; do not bypass or edit the database flag.
+
+6. Run the same command without `--dry-run`:
+
+   ```bash
+   railway run uv run python manage.py flip_dataset_to_actual \
+     --amount '<opening-TWD-to-4dp>' \
+     --funding-type '<capital-or-loan>' \
+     --actor '<founder-or-operator>' \
+     --evidence-ref '<signed-opening-funding-evidence>'
+   ```
+
+7. Load ACTUAL master data and the complete opening count, in this exact order, then post its emitted event:
+
+   ```bash
+   railway run uv run python manage.py import_suppliers --file suppliers_YYYY-MM-DD.csv --commit
+   railway run uv run python manage.py import_products --file products_YYYY-MM-DD.csv --commit
+   railway run uv run python manage.py import_counts --file count_YYYY-MM-DD.csv --commit
+   railway run uv run python manage.py post_accounting_event ops '<opening-count-ledger-event-id>'
+   railway run uv run python manage.py import_po --file po_PO-YYYY-NNN.csv --commit
+   ```
+
+The supplier and product files must both be ACTUAL files loaded after the flip. This preserves the
+Product→Supplier provenance chain before the first PO. The opening count is single-use; a second
+`inventory.opening_counted` posting is refused.

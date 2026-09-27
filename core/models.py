@@ -1,10 +1,12 @@
 """Platform infrastructure models.
 
-Two things live here, and no business data:
+Three things live here, and no business data:
 
 * `DatasetSettings` — the SAMPLE/ACTUAL quarantine flag (DATA_REVIEW addendum §A1.2).
 * `AuditLogEntry` — an append-only record of who changed what and when, carrying
   NO customer PII.
+* `SecretRotation` — append-only deployment-control evidence containing only a
+  one-way fingerprint, never the secret.
 
 Business models (orders, inventory, lots, shipments, POs, journals, accounts,
 customers) belong to Slices A and B and must not be added here.
@@ -76,6 +78,9 @@ class DatasetSettings(models.Model):
 
     def save(self, *args, **kwargs):
         self.id = 1
+        if self.pk and type(self).objects.filter(pk=self.pk, dataset_kind=DatasetKind.ACTUAL).exists():
+            if self.dataset_kind != DatasetKind.ACTUAL:
+                raise RuntimeError("dataset_kind is one-way: ACTUAL cannot be changed back to SAMPLE")
         return super().save(*args, **kwargs)
 
     @classmethod
@@ -91,6 +96,41 @@ class DatasetSettings(models.Model):
     @property
     def is_sample(self) -> bool:
         return self.dataset_kind == DatasetKind.SAMPLE
+
+
+class SecretRotation(models.Model):
+    """Append-only evidence that the running deployment secret was rotated.
+
+    Only a SHA-256 digest is retained.  The secret itself has no model field and
+    therefore cannot accidentally be persisted by this control.
+    """
+
+    rotated_at = models.DateTimeField(auto_now_add=True)
+    actor = models.CharField(max_length=120)
+    evidence_ref = models.CharField(max_length=255)
+    secret_key_sha256 = models.CharField(max_length=64)
+    db_password_rotated = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("-rotated_at", "-id")
+        constraints = [
+            models.CheckConstraint(condition=~models.Q(actor=""), name="core_rotation_actor_required"),
+            models.CheckConstraint(
+                condition=~models.Q(evidence_ref=""), name="core_rotation_evidence_required"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(secret_key_sha256__regex=r"^[0-9a-f]{64}$"),
+                name="core_rotation_sha256_shape",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise RuntimeError("SecretRotation is append-only; rows cannot be modified")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("SecretRotation is append-only; rows cannot be deleted")
 
 
 class AuditAction(models.TextChoices):
