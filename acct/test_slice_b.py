@@ -53,7 +53,8 @@ class PostingRulesTests(TestCase):
             # Touched in G-3: po.paid has no default kind and is TWD/1121 only (Addendum H.1).
             "po.paid": self.event("po.paid", payload={"payment_kind":"deposit", "amount_twd":"10",
                 "po_number":"PO-TEST", "bank_account":"1121", "bank_ref":"B", "evidence_ref":"E"}),
-            "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty_pieces":"2"}),
+            # Touched in R-2.1: the adjustment records the inventory_account its product_type derives.
+            "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty_pieces":"2","inventory_account":"1231"}),
             "inventory.opening_counted": self.event("inventory.opening_counted", payload={"counted_at":"2025-03-27","evidence_ref":"synthetic-count","lines":[{"sku":"TESTSKU","qty_pieces":"2","agreed_unit_cost_twd":"5","line_value_twd":"10","condition":"sellable"}],"total_value_twd":"10"}),
             "cost.recorded": self.event("cost.recorded", entity_table="ops.etsystatementrow", payload={"category":"platform_listing_fee","settled_via":"etsy_rail"}),
         }

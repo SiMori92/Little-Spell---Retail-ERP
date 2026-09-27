@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Sum
 
 from acct.models import Account, WacPosition
-from acct.posting import PostingError, plan
+from acct.posting import PostingError, inventory_account_for, packaging_book, plan
 from core.models import DatasetSettings
 from ops.etsy_import import emit_event
 from ops.intake import ImportRefused, IntakeManifest, prepare_source
@@ -82,7 +82,8 @@ def _opening_payload(counted_at, evidence, lines, total):
     sellable = [line for line in lines if line["condition"] == "sellable"]
     damaged = [line for line in lines if line["condition"] == "damaged_unsellable"]
     payload_lines = [{**line, "agreed_unit_cost_twd": str(line["agreed_unit_cost_twd"]),
-                      "line_value_twd": str(line["line_value_twd"])} for line in sellable]
+                      "line_value_twd": str(line["line_value_twd"]),
+                      "inventory_account": inventory_account_for(line["sku"])} for line in sellable]
     payload = {"counted_at": counted_at.isoformat(), "evidence_ref": evidence,
                "lines": payload_lines,
                "damaged_lines": [{"sku": line["sku"], "qty_pieces": line["qty_pieces"]}
@@ -96,7 +97,7 @@ def _opening_payload(counted_at, evidence, lines, total):
 
 def _adjustment_payload(sku, delta, evidence, value, damaged_lines):
     return {"sku": sku, "qty_pieces": str(delta), "evidence_ref": evidence,
-            "source_value_twd": str(value),
+            "source_value_twd": str(value), "inventory_account": inventory_account_for(sku),
             "damaged_lines": [{"sku": line["sku"], "qty_pieces": line["qty_pieces"]}
                               for line in damaged_lines]}
 
@@ -841,9 +842,15 @@ def import_counts(path, *, commit: bool = False) -> IntakeResult:
     if kind == "adjustment":
         if not opening.posted_entry_id:
             raise ImportRefused("opening count must be posted before adjustment intake")
+        skus = [line["sku"] for line in sellable_lines]
         positions = WacPosition.objects.select_for_update().in_bulk(
-            [line["sku"] for line in sellable_lines]
+            [sku for sku in skus if inventory_account_for(sku) == "1231"]
         )
+        # R-2.1: packaging has no WAC; an unsaved position carries its 1233 book (I-3).
+        for sku in skus:
+            if inventory_account_for(sku) == "1233":
+                qty, value = packaging_book(sku, settings.dataset_kind)
+                positions[sku] = WacPosition(sku=sku, qty_pieces=qty, value_twd=value)
         onhand = dict(InventoryMove.objects.filter(dataset_kind=settings.dataset_kind,
             product_id__in=positions).values("product_id").annotate(total=Sum("qty_delta_pieces"))
             .values_list("product_id", "total"))

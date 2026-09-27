@@ -5,12 +5,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from functools import partial
 
 from django.db import transaction
+from django.db.models import Sum
 from django.conf import settings
 from django.utils import timezone
 
 from acct.models import Account, AcctManualEntry, FxRate, JournalEntry, JournalLine, MANUAL_EVENT_TYPES, WacPosition
 from core.models import DatasetSettings
-from ops.models import LedgerEvent, OPS_EVENT_TYPES, Order, InventoryMove
+from ops.models import LedgerEvent, OPS_EVENT_TYPES, Order, InventoryMove, Product
 
 Q = Decimal("0.0001")
 
@@ -403,6 +404,22 @@ def po_paid(e):
     return pair("6199", "1266", value)
 
 
+def inventory_account_for(sku):
+    """R-2.1: stock accounts follow product_type, as po.received does (Addendum G.1)."""
+    product_type = Product.objects.filter(pk=sku).values_list("product_type", flat=True).first()
+    if product_type is None:
+        raise PostingError(f"inventory SKU {sku} is not a known product")
+    return "1233" if product_type == "packaging" else "1231"
+
+
+def packaging_book(sku, dataset_kind):
+    """Packaging per-SKU book on 1233: the SKU-tagged 1233 pieces and value. Never a WacPosition."""
+    totals = JournalLine.objects.filter(account_id="1233", sku=sku, entry__dataset_kind=dataset_kind).aggregate(
+        qty=Sum("qty_delta_pieces"), debit=Sum("debit"), credit=Sum("credit"))
+    return (money(totals["qty"] or 0),
+            money((totals["debit"] or Decimal(0)) - (totals["credit"] or Decimal(0))))
+
+
 def inventory_adjusted(e):
     if "qty" in e.payload:
         raise PostingError("inventory adjustment payload field qty was renamed to qty_pieces "
@@ -412,17 +429,29 @@ def inventory_adjusted(e):
     if not e.payload.get("evidence_ref") or not e.payload.get("sku"):
         raise PostingError("inventory adjustment needs count evidence, SKU and qty_pieces")
     _validate_damaged_lines(e.payload.get("damaged_lines", []), "inventory adjustment")
-    position = WacPosition.objects.select_for_update().filter(pk=e.payload["sku"]).first()
+    sku = e.payload["sku"]
+    account = inventory_account_for(sku)
+    recorded = e.payload.get("inventory_account")
+    if recorded is None:
+        raise PostingError("inventory adjustment inventory_account is required (R-2.1)")
+    if str(recorded) != account:
+        raise PostingError(f"inventory adjustment inventory_account {recorded} disagrees with "
+                           f"product_type of {sku}, which posts to {account} (R-2.1)")
     qty = money(e.payload["qty_pieces"])
     if qty != qty.to_integral_value():
         raise PostingError("inventory adjustment qty_pieces must be whole pieces")
-    if position is None or position.qty_pieces < qty or position.qty_pieces <= 0:
-        raise PostingError("inventory adjustment lacks sufficient SKU WAC stock")
-    value = money(position.value_twd * qty / position.qty_pieces)
+    if account == "1233":
+        book_qty, book_value = packaging_book(sku, e.dataset_kind)
+    else:
+        position = WacPosition.objects.select_for_update().filter(pk=sku).first()
+        book_qty, book_value = (position.qty_pieces, position.value_twd) if position else (Decimal(0), Decimal(0))
+    if book_qty < qty or book_qty <= 0:
+        raise PostingError("inventory adjustment lacks sufficient SKU WAC stock" if account == "1231" else
+                           "inventory adjustment lacks sufficient SKU packaging stock on 1233")
+    value = money(book_value * qty / book_qty)
     if e.payload.get("source_value_twd") is not None and money(e.payload["source_value_twd"]) != value:
         raise PostingError("inventory adjustment WAC changed since count intake; reconcile the source")
-    return [dr("5121", value, sku=e.payload["sku"]), cr(e.payload.get("inventory_account", "1231"), value,
-            sku=e.payload["sku"], qty_delta_pieces=-qty)]
+    return [dr("5121", value, sku=sku), cr(account, value, sku=sku, qty_delta_pieces=-qty)]
 
 
 def _validate_damaged_lines(rows, label, sellable_skus=None):
@@ -478,8 +507,13 @@ def opening_counted(e):
         if value != money(qty * unit):
             raise PostingError(f"opening count {row['sku']} line_value_twd disagrees with quantity and cost")
         total += value
+        # R-2.1: packaging is counted onto 1233, sellable onto 1231 (E.6 item 4, Addendum G).
+        account = inventory_account_for(row["sku"])
+        if row.get("inventory_account") is not None and str(row["inventory_account"]) != account:
+            raise PostingError(f"opening count {row['sku']} inventory_account {row['inventory_account']} "
+                               f"disagrees with product_type, which posts to {account} (R-2.1)")
         # The zero pair is evidence that this SKU was counted, not an omitted SKU.
-        lines += [dr("1231", value, sku=row["sku"], qty_delta_pieces=qty),
+        lines += [dr(account, value, sku=row["sku"], qty_delta_pieces=qty),
                   cr("3111", value, sku=row["sku"] if not value else None)]
     _validate_damaged_lines(payload.get("damaged_lines", []), "opening count", seen)
     if money(required(payload, "total_value_twd")) != money(total):
@@ -602,8 +636,9 @@ def apply_wac(event, lines):
     p = event.payload
     if kind in ("inventory.opening_counted", "po.received"):
         # WAC is per sellable SKU on 1231; packaging (1233) and damage (5121) never enter it.
+        sellable = {line.sku for line in lines if line.account == "1231"}
         rows = ([{"sku": row["sku"], "qty_pieces": row["qty_pieces"], "landed_cost_twd": row["line_value_twd"]}
-                 for row in p["lines"]] if kind == "inventory.opening_counted" else
+                 for row in p["lines"] if row["sku"] in sellable] if kind == "inventory.opening_counted" else
                 [row for row in p["sku_receipts"] if str(row.get("inventory_account", "1231")) == "1231"])
         for row in rows:
             position, _ = WacPosition.objects.select_for_update().get_or_create(sku=row["sku"])
@@ -622,7 +657,7 @@ def apply_wac(event, lines):
             if position.qty_pieces == 0:
                 position.value_twd = Decimal(0)
             position.save(update_fields=["qty_pieces", "value_twd"])
-    elif kind == "inventory.adjusted":
+    elif kind == "inventory.adjusted" and lines[1].account == "1231":
         position = WacPosition.objects.select_for_update().get(pk=p["sku"])
         position.qty_pieces -= money(p["qty_pieces"])
         position.value_twd -= lines[0].debit
