@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.recorder import MigrationRecorder
 from django.test import TestCase, TransactionTestCase
 
 from acct.models import JournalLine, MANUAL_EVENT_TYPES, WacPosition
@@ -101,6 +102,11 @@ class UnitMigrationRefusalTests(TransactionTestCase):
         self.settings.save(update_fields=["dataset_kind"])
 
     def tearDown(self):
+        if not MigrationRecorder(connection).migration_qs.filter(
+                app="ops", name="0011_piece_inventory_unit").exists():
+            self.OldMove.objects.all().delete()
+            self.OldProduct.objects.all().delete()
+            self.OldSettings.objects.filter(pk=1).update(dataset_kind="SAMPLE")
         MigrationExecutor(connection).migrate(
             MigrationExecutor(connection).loader.graph.leaf_nodes()
         )

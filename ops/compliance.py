@@ -11,7 +11,12 @@ class PoBlocked(ValueError):
 
 def assert_po_eligible(skus) -> None:
     requested = sorted(set(skus))
-    products = Product.objects.select_related("supplier").in_bulk(requested)
+    # This guard is exercised against historical migration states. Select only
+    # the stable compliance columns it actually uses; unit fields are irrelevant
+    # to PO eligibility and may not exist yet during a forward-migration test.
+    products = Product.objects.select_related("supplier").only(
+        "sku", "ingredient_ref", "supplier_id", "supplier__declaration_ref"
+    ).in_bulk(requested)
     blocked = []
     for sku in requested:
         product = products.get(sku)
