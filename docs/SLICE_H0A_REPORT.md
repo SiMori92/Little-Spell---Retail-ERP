@@ -107,7 +107,9 @@ use a `SAMPLE_` filename and CSV row 1 includes `dataset_kind`, overall `cost_ba
    due follow-ups, ordered oldest first.
 2. **Journey due.** `IG-202610-004` shipped 2026-10-20 with consent `yes` and `d0` already sent, so
    `d10` was due 2026-10-30 and is 16 days overdue at the same as-of date. The consent-blank
-   multiline customer never appears. The sample has two due journey steps.
+   multiline customer never appears. Corrected sample deal `IG-202610-005` shipped 2026-10-08
+   with `d10` already sent, so `d30` is due 2026-11-07 and is 8 days overdue. The sample has two
+   due journey steps.
 3. **Conversion by enquiry month.** October 2026 has 12 enquiries, 10 reaching quoted, 6 reaching
    paid, one `no_reply` loss, and one `price` loss. The quoted rate is 83.3333% and paid rate is
    50.0000%. November has zero enquiries, so both rates are ABSENT rather than zero or division by
@@ -139,3 +141,30 @@ Instagram deal to an order/posting path. H-0a deliberately does none of those th
 Elapsed time was **0.45 active engineering hours**. Wall-clock elapsed was approximately **3.0
 hours**, including an approximately 2.5-hour pause between the PostgreSQL gate and the requested
 continuation/report handoff.
+
+## H-0a.1 — chronological order
+
+H-0a.1 closes the PostgreSQL gate finding that milestone and follow-up dates could be accepted out
+of order.
+
+- The intake now compares the present milestone dates in the declared sequence
+  `enquiry_at <= quoted_at <= paid_at <= ship_date`. Blank dates are skipped, so two present dates
+  cannot evade comparison because a middle date is absent. A present `follow_up_on` must also be on
+  or after `enquiry_at`.
+- A refusal names the deal, later field and date, and earlier field and date, for example:
+  `deal IG-202610-150: ship_date 2026-10-02 is before paid_at 2026-10-03`.
+- Migration `ops/migrations/0010_igdeal_date_order.py` adds PostgreSQL CHECK constraint
+  `ops_igdeal_date_order`. NULLs pass, while every pair of present milestone dates and the
+  enquiry/follow-up pair must be ordered.
+- Sample deal `IG-202610-005` now has `ship_date` 2026-10-08. Its next `d30` journey step is due
+  2026-11-07 and is 8 days overdue at 2026-11-15; the earlier impossible 2026-10-01 ship date and
+  derived 15-day figure are gone.
+- Tests independently break enquiry/quoted, quoted/paid, paid/shipped, and enquiry/follow-up order
+  and assert that both field names appear in each refusal. A forward `queryset.update()` reaches the
+  CHECK and raises `IntegrityError`; all milestones on the same day are accepted. The corrected
+  sample and all existing H-0a tests pass unchanged.
+
+Local PostgreSQL was unavailable. GitHub Actions PostgreSQL run **36302848887** passed in **1m 5s**
+on implementation commit `e36ec92`, including migration application, deployment checks, privacy
+guards, and the complete Django suite. H-0a.1 took **0.06 elapsed hours** from pre-flight through
+the passing implementation gate and report update.
