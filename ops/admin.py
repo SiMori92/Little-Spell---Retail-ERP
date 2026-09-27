@@ -2,10 +2,11 @@
 
 from django.contrib import admin
 
-from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, IgDeal,
+from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, GoodsReceipt, GoodsReceiptLine, IgDeal,
                         IgDealStatus, InventoryMove, LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
                         ProductComplianceChange, PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus,
-                        Receipt, Shipment, StockCount, StockCountLine, Supplier, SupplierChange)
+                        Receipt, Shipment, StockCount, StockCountLine, Supplier, SupplierChange,
+                        SupplierInvoice, SupplierInvoiceLine)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -115,6 +116,37 @@ class PurchaseOrderStatusAdmin(ReadOnlyAdmin):
     list_display = ("po_number", "status", "effective_on", "source_filename", "dataset_kind")
     list_filter = ("status", "effective_on", "dataset_kind")
     search_fields = ("po_number", "source_filename")
+
+
+@admin.register(GoodsReceipt)
+class GoodsReceiptAdmin(ReadOnlyAdmin):
+    list_display = ("po", "receipt_no", "received_on", "source_filename", "dataset_kind")
+    list_filter = ("po__supplier", "received_on", "dataset_kind")
+    search_fields = ("po__po_number", "receipt_no", "source_filename")
+
+
+@admin.register(GoodsReceiptLine)
+class GoodsReceiptLineAdmin(ReadOnlyAdmin):
+    list_display = ("receipt", "line_no", "product", "qty_pieces_good", "qty_pieces_damaged",
+                    "damaged_credited", "short_close", "evidence_ref")
+    list_filter = ("receipt__po__supplier", "product", "damaged_credited", "short_close", "dataset_kind")
+    search_fields = ("receipt__po__po_number", "receipt__receipt_no", "product__sku", "evidence_ref")
+
+
+@admin.register(SupplierInvoice)
+class SupplierInvoiceAdmin(ReadOnlyAdmin):
+    list_display = ("invoice_no", "gui_no", "invoice_date", "po", "receipt_no", "freight_twd", "tax_twd",
+                    "tax_creditable_twd", "invoice_total_twd", "dataset_kind")
+    list_filter = ("po__supplier", "invoice_date", "dataset_kind")
+    search_fields = ("invoice_no", "gui_no", "po__po_number", "receipt_no", "evidence_ref")
+
+
+@admin.register(SupplierInvoiceLine)
+class SupplierInvoiceLineAdmin(ReadOnlyAdmin):
+    list_display = ("invoice", "line_no", "product", "qty_pieces_invoiced", "unit_price_twd",
+                    "setup_charge_twd", "line_amount_twd")
+    list_filter = ("invoice__po__supplier", "product", "dataset_kind")
+    search_fields = ("invoice__invoice_no", "invoice__po__po_number", "product__sku")
 
 
 @admin.register(Channel)

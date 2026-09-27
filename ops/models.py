@@ -170,7 +170,10 @@ class IgDealStatus(Provenance):
         raise RuntimeError("Instagram deal status history is append-only")
 
 
-PO_STATUSES = ("draft", "sent", "acknowledged", "cancelled")
+# A PO file may state only these; `received` and `short_closed` are reached
+# automatically when every line has a matched, posted receipt (G-2).
+PO_FILE_STATUSES = ("draft", "sent", "acknowledged", "cancelled")
+PO_STATUSES = PO_FILE_STATUSES + ("received", "short_closed")
 PO_INCOTERMS = ("EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF")
 
 
@@ -257,6 +260,120 @@ class PurchaseOrderStatus(Provenance):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("purchase order status history is append-only")
+
+
+class AppendOnly(Provenance):
+    """G-2 purchase documents are facts: a correction is a new document, never an edit."""
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise RuntimeError(f"{type(self).__name__} is append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError(f"{type(self).__name__} is append-only")
+
+
+class GoodsReceipt(AppendOnly):
+    """What arrived against one PO, on one delivery note (G-2)."""
+
+    po = models.ForeignKey(PurchaseOrder, related_name="receipts", on_delete=models.PROTECT)
+    receipt_no = models.CharField(max_length=32)
+    received_on = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["po", "receipt_no"], name="ops_grn_once_per_po"),
+            models.CheckConstraint(condition=Q(receipt_no__regex=r"^[A-Z0-9][A-Z0-9-]{0,31}$"),
+                                   name="ops_grn_receipt_no_shape"),
+        ]
+
+
+class GoodsReceiptLine(AppendOnly):
+    receipt = models.ForeignKey(GoodsReceipt, related_name="lines", on_delete=models.PROTECT)
+    # I-7: one receipt per PO line in G-2. Multi-delivery lines arrive in G-2b.
+    po_line = models.OneToOneField(PurchaseOrderLine, related_name="receipt_line", on_delete=models.PROTECT)
+    line_no = models.PositiveIntegerField()
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    qty_pieces_good = models.PositiveIntegerField()
+    qty_pieces_damaged = models.PositiveIntegerField()
+    damaged_credited = models.BooleanField()
+    short_close = models.BooleanField()
+    short_close_reason = models.CharField(max_length=255, blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["receipt", "line_no"], name="ops_grn_line_once"),
+            models.CheckConstraint(condition=Q(qty_pieces_good__gt=0) |
+                                   (Q(qty_pieces_damaged__gt=0) & Q(damaged_credited=False)),
+                                   name="ops_grn_line_accepts_pieces"),
+            models.CheckConstraint(condition=Q(qty_pieces_damaged__gt=0) | Q(damaged_credited=False),
+                                   name="ops_grn_credit_needs_damage"),
+            models.CheckConstraint(condition=(Q(short_close=True) & ~Q(short_close_reason="")) |
+                                   Q(short_close=False, short_close_reason=""),
+                                   name="ops_grn_short_close_reason"),
+            models.CheckConstraint(condition=~Q(evidence_ref=""), name="ops_grn_line_evidence_required"),
+        ]
+
+
+class SupplierInvoice(AppendOnly):
+    """The supplier's bill for one goods receipt (G-2). TWD, 4 dp."""
+
+    invoice_no = models.CharField(max_length=32)
+    gui_no = models.CharField(max_length=10, blank=True, default="")
+    invoice_date = models.DateField()
+    po = models.ForeignKey(PurchaseOrder, related_name="invoices", on_delete=models.PROTECT)
+    receipt_no = models.CharField(max_length=32)
+    freight_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    tax_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    tax_creditable_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    invoice_total_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    deposit_applied_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "invoice_no"], name="ops_invoice_dataset_number"),
+            models.UniqueConstraint(fields=["po", "receipt_no"], name="ops_invoice_once_per_receipt"),
+            models.CheckConstraint(condition=Q(freight_twd__gte=0), name="ops_invoice_freight_nonnegative"),
+            # I-5: 0 <= creditable <= tax; creditable needs a 統一發票 number.
+            models.CheckConstraint(condition=Q(tax_creditable_twd__gte=0) &
+                                   Q(tax_creditable_twd__lte=models.F("tax_twd")),
+                                   name="ops_invoice_creditable_within_tax"),
+            models.CheckConstraint(condition=Q(tax_creditable_twd=0) | ~Q(gui_no=""),
+                                   name="ops_invoice_creditable_needs_gui"),
+            # I-8: deposits arrive with G-3.
+            models.CheckConstraint(condition=Q(deposit_applied_twd=0), name="ops_invoice_no_deposit_before_g3"),
+            models.CheckConstraint(condition=Q(gui_no="") | Q(gui_no__regex=r"^[A-Z]{2}[0-9]{8}$"),
+                                   name="ops_invoice_gui_no_shape"),
+            models.CheckConstraint(condition=~Q(evidence_ref=""), name="ops_invoice_evidence_required"),
+        ]
+
+
+class SupplierInvoiceLine(AppendOnly):
+    invoice = models.ForeignKey(SupplierInvoice, related_name="lines", on_delete=models.PROTECT)
+    po_line = models.OneToOneField(PurchaseOrderLine, related_name="invoice_line", on_delete=models.PROTECT)
+    line_no = models.PositiveIntegerField()
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    qty_pieces_invoiced = models.PositiveIntegerField()
+    unit_price_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    setup_charge_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    line_amount_twd = models.DecimalField(max_digits=18, decimal_places=4)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["invoice", "line_no"], name="ops_invoice_line_once"),
+            models.CheckConstraint(condition=Q(qty_pieces_invoiced__gt=0), name="ops_invoice_line_positive_pieces"),
+            models.CheckConstraint(
+                condition=Q(line_amount_twd=models.F("qty_pieces_invoiced") * models.F("unit_price_twd")
+                            + models.F("setup_charge_twd")),
+                name="ops_invoice_line_amount_identity",
+            ),
+        ]
 
 
 class Channel(models.Model):

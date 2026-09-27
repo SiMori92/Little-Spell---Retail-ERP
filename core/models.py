@@ -19,6 +19,9 @@ class DatasetKind(models.TextChoices):
     ACTUAL = "ACTUAL", "Actual data"
 
 
+BUSINESS_TAX_REGIMES = ("unregistered", "assessed", "general")
+
+
 class DatasetSettings(models.Model):
     """Singleton. One row, pk=1, enforced by a CHECK constraint.
 
@@ -44,6 +47,15 @@ class DatasetSettings(models.Model):
         ),
     )
     flipped_to_actual_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Catalogue G.5.6: an INPUT, never assumed. Only `assessed` or `general` lets any
+    # supplier-invoice tax be creditable (1268); `unregistered` forces it to 0.
+    business_tax_regime = models.CharField(
+        max_length=12,
+        choices=[(value, value) for value in BUSINESS_TAX_REGIMES],
+        default="unregistered",
+        db_default="unregistered",  # a writer that omits the column still gets unregistered
+        help_text="unregistered | assessed | general. Set by manage.py set_business_tax_regime.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -52,7 +64,11 @@ class DatasetSettings(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(id=1), name="core_datasetsettings_singleton"
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(business_tax_regime__in=BUSINESS_TAX_REGIMES),
+                name="core_business_tax_regime_allowed",
+            ),
         ]
 
     def __str__(self) -> str:

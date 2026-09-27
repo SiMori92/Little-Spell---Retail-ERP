@@ -48,7 +48,7 @@ class PostingRulesTests(TestCase):
             "settlement.received": self.event("settlement.received", amount=31000, payload={"channel_applied_fx_rate":"31.000000","rate_source":"stated","usd_settled":"10","rate_evidence_ref":"synthetic"}),
             "settlement.reversed": self.event("settlement.reversed", payload={"original_carrying_twd":"320","bank_reversal_twd":"325","reversal_fee_twd":"5"}),
             "po.in_transit": self.event("po.in_transit"),
-            "po.received": self.event("po.received", payload={"landed_components_twd":{"product":"100","packaging":"10","supplier":"100","freight":"5","duty":"5","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"10","landed_cost_twd":"100"}]}),
+            "po.received": self.event("po.received", payload={"landed_components_twd":{"product":"100","packaging":"10","supplier":"110","freight":"0","duty":"0","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"10","landed_cost_twd":"100"},{"sku":"TESTPKG","qty_pieces":"5","landed_cost_twd":"10","inventory_account":"1233"}],"tax_twd":"0","tax_creditable_twd":"0"}),
             "po.landed_cost_adjusted": self.event("po.landed_cost_adjusted", payload={"onhand_ratio":"0.4","lot_ref":"L","sku":"TESTSKU"}),
             "po.paid": self.event("po.paid", payload={"bank_ref":"B"}),
             "inventory.adjusted": self.event("inventory.adjusted", payload={"evidence_ref":"COUNT","sku":"TESTSKU","qty_pieces":"2"}),
@@ -186,7 +186,7 @@ class PostingRulesTests(TestCase):
             c.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     def test_cogs_uses_running_weighted_average_per_sku(self):
-        receipt = LedgerEvent.objects.create(event_type="po.received", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={"landed_components_twd":{"product":"30","packaging":"0","supplier":"30","freight":"0","duty":"0","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"3","landed_cost_twd":"30"}]}, idempotency_key="synthetic-receipt", source_filename="synthetic", dataset_kind="SAMPLE")
+        receipt = LedgerEvent.objects.create(event_type="po.received", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={"landed_components_twd":{"product":"30","packaging":"0","supplier":"30","freight":"0","duty":"0","in_transit":"0"},"sku_receipts":[{"sku":"TESTSKU","qty_pieces":"3","landed_cost_twd":"30"}],"tax_twd":"0","tax_creditable_twd":"0"}, idempotency_key="synthetic-receipt", source_filename="synthetic", dataset_kind="SAMPLE")
         post_event(receipt)
         cogs_event = LedgerEvent.objects.create(event_type="order.cogs_relieved", entity_table="ops.order", entity_id=self.order.pk, occurred_at=NOW, amount_minor=None, currency="TWD", payload={}, idempotency_key="synthetic-cogs", source_filename="synthetic", dataset_kind="SAMPLE")
         entry_id = post_event(cogs_event)

@@ -1,4 +1,4 @@
-"""Frozen v1.4 event catalogue binding. No catch-all or guessed amounts."""
+"""Frozen v1.7 event catalogue binding. No catch-all or guessed amounts."""
 from datetime import date
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
@@ -312,22 +312,55 @@ def settlement_reversed(e):
     return lines
 
 
+def _whole_pieces(row, label):
+    qty = money(required(row, "qty_pieces"))
+    if qty <= 0 or qty != qty.to_integral_value() or not row.get("sku"):
+        raise PostingError(f"{label} needs positive whole-piece SKU quantities")
+    return qty
+
+
 def po_received(e):
+    """Catalogue Addendum G as amended by G.5: 1231/1233 per SKU, 5121 damage, 1268 creditable tax."""
     p = e.payload
     components = required(p, "landed_components_twd")
     if set(components) != {"product", "packaging", "supplier", "freight", "duty", "in_transit"}:
         raise PostingError("PO landed components incomplete")
     c = {k: money(v) for k, v in components.items()}
     receipts = required(p, "sku_receipts")
-    if money(sum(money(required(row, "landed_cost_twd")) for row in receipts)) != c["product"]:
-        raise PostingError("SKU landed cost does not tie to product inventory debit")
-    quantities = [money(required(row, "qty_pieces")) for row in receipts]
-    if any(qty <= 0 or qty != qty.to_integral_value() for qty in quantities) or any(
-            not row.get("sku") for row in receipts):
-        raise PostingError("PO receipt needs positive whole-piece SKU quantities")
-    lines = [dr("1231", row["landed_cost_twd"], sku=row["sku"],
-                qty_delta_pieces=money(row["qty_pieces"])) for row in receipts]
-    lines += [dr("1233", c["packaging"]), cr("2171", c["supplier"]), cr("2172", c["freight"]), cr("2192", c["duty"]), cr("1232", c["in_transit"])]
+    damaged = p.get("damaged_on_arrival") or []
+    quantities = [_whole_pieces(row, "PO receipt") for row in receipts]
+    for row in damaged:
+        _whole_pieces(row, "damaged on arrival")
+    accounts = [str(row.get("inventory_account", "1231")) for row in receipts]
+    if any(account not in ("1231", "1233") for account in accounts):
+        raise PostingError("sku_receipts inventory_account must be 1231 (sellable) or 1233 (packaging)")
+    if c["freight"] or c["duty"]:
+        raise PostingError("carrier freight and duty on a receipt arrive in Slice I (catalogue G.5.2)")
+    if c["in_transit"]:
+        raise PostingError("a receipt after po.in_transit arrives in G-2b (catalogue G.5.5)")
+    tax = money(required(p, "tax_twd"))
+    creditable = money(required(p, "tax_creditable_twd"))
+    if creditable > tax:
+        raise PostingError("tax_creditable_twd cannot exceed tax_twd")
+    if creditable and not p.get("gui_no"):
+        raise PostingError("creditable input tax requires a gui_no (catalogue G.1)")
+    if creditable and DatasetSettings.load().business_tax_regime == "unregistered":
+        raise PostingError("creditable input tax requires business_tax_regime assessed or general (G.5.6)")
+    for account, key in (("1231", "product"), ("1233", "packaging")):
+        rows = [row for row, code in zip(receipts, accounts) if code == account]
+        if money(sum(money(required(row, "landed_cost_twd")) for row in rows)) != c[key]:
+            raise PostingError(f"SKU landed cost does not tie to {key} inventory debit {account}")
+    written_off = sum((money(required(row, "landed_cost_twd")) for row in damaged), Decimal(0))
+    left = c["product"] + c["packaging"] + written_off + creditable
+    right = c["supplier"] + c["freight"] + c["duty"] + c["in_transit"]
+    if left != right:
+        raise PostingError(f"po.received identity fails by {left - right} TWD (catalogue G.5.1)")
+    lines = [dr(account, row["landed_cost_twd"], sku=row["sku"], qty_delta_pieces=qty)
+             for row, account, qty in zip(receipts, accounts, quantities)]
+    # R-3: damaged pieces are written off at their landed value; no quantity enters WAC.
+    lines += [dr("5121", row["landed_cost_twd"], sku=row["sku"]) for row in damaged]
+    lines += [dr("1268", creditable), cr("2171", c["supplier"]), cr("2172", c["freight"]),
+              cr("2192", c["duty"]), cr("1232", c["in_transit"])]
     return [x for x in lines if x.debit or x.credit]
 
 
@@ -521,8 +554,10 @@ def apply_wac(event, lines):
     kind = event.event_type
     p = event.payload
     if kind in ("inventory.opening_counted", "po.received"):
+        # WAC is per sellable SKU on 1231; packaging (1233) and damage (5121) never enter it.
         rows = ([{"sku": row["sku"], "qty_pieces": row["qty_pieces"], "landed_cost_twd": row["line_value_twd"]}
-                 for row in p["lines"]] if kind == "inventory.opening_counted" else p["sku_receipts"])
+                 for row in p["lines"]] if kind == "inventory.opening_counted" else
+                [row for row in p["sku_receipts"] if str(row.get("inventory_account", "1231")) == "1231"])
         for row in rows:
             position, _ = WacPosition.objects.select_for_update().get_or_create(sku=row["sku"])
             position.qty_pieces += money(row["qty_pieces"])

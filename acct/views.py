@@ -36,6 +36,8 @@ REPORT_GROUPS = (
     )},
     {"id": "purchasing", "title": "Purchasing", "description": "Review supplier commitments raised by PO file.", "items": (
         ("open-pos", "Open purchase orders", "Pieces and NT$ committed by supplier and SKU; drafts listed apart."),
+        ("po-exceptions", "Purchase exceptions", "Received not invoiced, invoiced not received, refused matches."),
+        ("landed-cost", "Landed cost by PO line", "Pieces, landed value, per-piece cost and damage written off."),
     )},
 )
 
@@ -105,7 +107,7 @@ def report_detail(request, slug):
     if builder is None:
         raise Http404("unknown report")
     try:
-        if slug in {"ig-pipeline", "open-pos"}:
+        if slug in {"ig-pipeline", "open-pos", "po-exceptions", "landed-cost"}:
             period = request.GET.get("as_of") or timezone.localtime(
                 timezone.now(), ZoneInfo("Asia/Taipei")).date().isoformat()
         else:
@@ -128,6 +130,8 @@ def report_detail(request, slug):
                         amount_text = "ABSENT"
                     elif value.unit == "TWD":
                         amount_text = f"NT${value.amount:,.2f}"
+                    elif value.unit == "TWD/pc":
+                        amount_text = f"NT${value.amount:,.4f}/pc"
                     else:
                         amount_text = f"{value.amount:,.0f} {value.unit}"
                     basis_label = ("PROVISIONAL COST BASIS — NOT ACTUAL" + (" [ESTIMATE]" if value.estimate else "")

@@ -1,4 +1,4 @@
-"""Read-only operational reports: the Instagram pipeline and open purchase orders."""
+"""Read-only operational reports: the Instagram pipeline, purchase orders and receiving."""
 
 from collections import Counter, defaultdict
 from datetime import date, timedelta
@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from acct.reporting import Column, Report, ReportSection, absent, known, period_bounds
 from core.models import DatasetSettings
-from ops.models import IgDeal, PurchaseOrderLine
+from ops.models import GoodsReceipt, IgDeal, LedgerEvent, PurchaseOrderLine, SupplierInvoice
 
 PAID = {"paid", "shipped", "followed_up"}
 QUOTED = {"quoted", *PAID}
@@ -159,4 +159,108 @@ def open_pos(as_of_text):
                   sections, "as_of")
 
 
-REPORT_BUILDERS = {"ig-pipeline": ig_pipeline, "repeat-rate": repeat_rate, "open-pos": open_pos}
+def po_exceptions(as_of_text):
+    """I-1: every receipt or invoice that has not posted is listed here. Nothing waits silently."""
+    from ops.receiving import evaluate_match, event_key
+
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    posted = set(LedgerEvent.objects.filter(event_type="po.received", dataset_kind=kind)
+                 .values_list("idempotency_key", flat=True))
+    receipts = (GoodsReceipt.objects.filter(dataset_kind=kind, received_on__lte=as_of)
+                .select_related("po").order_by("po__po_number", "receipt_no"))
+    invoices = {(invoice.po_id, invoice.receipt_no): invoice for invoice in SupplierInvoice.objects.filter(
+        dataset_kind=kind, invoice_date__lte=as_of).select_related("po")}
+    received_columns = (Column("po", "PO", False), Column("receipt", "Receipt", False),
+                        Column("received_on", "Received on", False), Column("line", "PO line", False),
+                        Column("sku", "SKU", False), Column("good", "Good pieces"),
+                        Column("damaged", "Damaged pieces"), Column("days", "Days waiting"))
+    invoiced_columns = (Column("po", "PO", False), Column("receipt", "Receipt named", False),
+                        Column("invoice", "Invoice", False), Column("invoice_date", "Invoice date", False),
+                        Column("total", "Invoice total NT$"), Column("days", "Days waiting"))
+    refused_columns = (Column("po", "PO", False), Column("receipt", "Receipt", False),
+                       Column("invoice", "Invoice", False), Column("reason", "Why nothing posted", False))
+    received_rows, refused_rows, receipt_keys = [], [], set()
+    for receipt in receipts:
+        receipt_keys.add((receipt.po_id, receipt.receipt_no))
+        if event_key(receipt) in posted:
+            continue
+        invoice = invoices.get((receipt.po_id, receipt.receipt_no))
+        if invoice is None:
+            for line in receipt.lines.order_by("line_no"):
+                received_rows.append({
+                    "po": receipt.po.po_number, "receipt": receipt.receipt_no,
+                    "received_on": receipt.received_on.isoformat(), "line": str(line.line_no),
+                    "sku": line.product_id, "good": known(line.qty_pieces_good, as_of_text, kind, unit="pcs"),
+                    "damaged": known(line.qty_pieces_damaged, as_of_text, kind, unit="pcs"),
+                    "days": known((as_of - receipt.received_on).days, as_of_text, kind, unit="days")})
+            continue
+        for reason in evaluate_match(receipt, invoice).problems or [
+                "matched but not posted; post the po.received event"]:
+            refused_rows.append({"po": receipt.po.po_number, "receipt": receipt.receipt_no,
+                                 "invoice": invoice.invoice_no, "reason": reason})
+    invoiced_rows = [{"po": invoice.po.po_number, "receipt": invoice.receipt_no, "invoice": invoice.invoice_no,
+                      "invoice_date": invoice.invoice_date.isoformat(),
+                      "total": known(invoice.invoice_total_twd, as_of_text, kind),
+                      "days": known((as_of - invoice.invoice_date).days, as_of_text, kind, unit="days")}
+                     for key, invoice in sorted(invoices.items(), key=lambda item: item[1].invoice_no)
+                     if key not in receipt_keys]
+    sections = (ReportSection("Received, not invoiced", received_columns, received_rows),
+                ReportSection("Invoiced, not received", invoiced_columns, invoiced_rows),
+                ReportSection("Refused matches", refused_columns, refused_rows))
+    return Report("po-exceptions", "Purchase exceptions", as_of_text, kind, (), [],
+                  ["po.received posts only on a three-way match: a sent or acknowledged PO, a goods receipt, "
+                   "and a supplier invoice for that receipt that agree (catalogue G.3.3).",
+                   "Every row here has posted nothing. A refused match names its reason; nothing is absorbed.",
+                   "Documents dated after the as-of date are not shown."],
+                  sections, "as_of")
+
+
+def landed_cost(as_of_text):
+    """Per PO line received: pieces, landed value and how it was built (catalogue G.3, G.5)."""
+    from ops.receiving import event_key, invoice_for, value_pair
+
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    posted = set(LedgerEvent.objects.filter(event_type="po.received", dataset_kind=kind,
+                                            posted_entry_id__isnull=False)
+                 .values_list("idempotency_key", flat=True))
+    columns = (Column("po", "PO", False), Column("receipt", "Receipt", False), Column("line", "PO line", False),
+               Column("sku", "SKU", False), Column("account", "Account", False),
+               Column("good", "Good pieces"), Column("damaged", "Damaged, not credited"),
+               Column("line_amount", "Line amount NT$"), Column("setup", "of which setup NT$"),
+               Column("freight", "Supplier freight share NT$"), Column("tax", "Non-creditable tax share NT$"),
+               Column("landed", "Landed total NT$"), Column("per_piece", "Landed per piece"),
+               Column("to_5121", "Damaged to 5121 NT$"), Column("to_stock", "Good to stock NT$"))
+    rows = []
+    for receipt in (GoodsReceipt.objects.filter(dataset_kind=kind, received_on__lte=as_of)
+                    .select_related("po").order_by("po__po_number", "receipt_no")):
+        if event_key(receipt) not in posted:
+            continue
+        values, _payload = value_pair(receipt, invoice_for(receipt))
+        period = receipt.received_on.strftime("%Y-%m")
+        for value in values:
+            rows.append({
+                "po": receipt.po.po_number, "receipt": receipt.receipt_no, "line": str(value.line_no),
+                "sku": value.sku, "account": value.inventory_account,
+                "good": known(value.qty_good, period, kind, unit="pcs"),
+                "damaged": known(value.qty_damaged, period, kind, unit="pcs"),
+                "line_amount": known(value.line_amount, period, kind), "setup": known(value.setup, period, kind),
+                "freight": known(value.freight_share, period, kind), "tax": known(value.tax_share, period, kind),
+                "landed": known(value.landed, period, kind),
+                "per_piece": known(value.per_piece, period, kind, unit="TWD/pc"),
+                "to_5121": known(value.damaged_value, period, kind),
+                "to_stock": known(value.good_value, period, kind)})
+    return Report("landed-cost", "Landed cost by PO line", as_of_text, kind, columns, rows,
+                  ["Landed = line amount (pieces invoiced x unit price + setup, R-1.1) + share of supplier-billed "
+                   "freight + share of non-creditable tax, both by line value; the remainder of each allocation "
+                   "goes to the highest PO line number on the receipt (G.5.2, G.5.4).",
+                   "Damaged value = landed x damaged / (good + damaged), half-up 4 dp; good = landed - damaged "
+                   "(G.5.3). Per piece is landed / (good + damaged), shown for reading only; it is never "
+                   "multiplied back.",
+                   "Credited damaged pieces were not invoiced and appear nowhere. Only posted receipts are listed; "
+                   "see Purchase exceptions for the rest."])
+
+
+REPORT_BUILDERS = {"ig-pipeline": ig_pipeline, "repeat-rate": repeat_rate, "open-pos": open_pos,
+                   "po-exceptions": po_exceptions, "landed-cost": landed_cost}

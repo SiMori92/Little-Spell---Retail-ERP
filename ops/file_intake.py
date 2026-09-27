@@ -18,7 +18,7 @@ from acct.posting import PostingError, plan
 from core.models import DatasetSettings
 from ops.etsy_import import emit_event
 from ops.intake import ImportRefused, IntakeManifest, prepare_source
-from ops.models import (NOT_APPLICABLE, PO_INCOTERMS, PO_STATUSES, PRODUCT_TYPES, InventoryMove,
+from ops.models import (NOT_APPLICABLE, PO_FILE_STATUSES, PO_INCOTERMS, PRODUCT_TYPES, InventoryMove,
                         LedgerEvent, Product, ProductComplianceChange, IgDeal, IgDealStatus, Order,
                         PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, Receipt, StockCount,
                         StockCountLine, Supplier, SupplierChange)
@@ -886,6 +886,8 @@ PO_FORWARD = {"draft": ("sent", "cancelled"), "sent": ("acknowledged", "cancelle
 # A PO is always created as draft; a file first seen later walks these steps.
 PO_STEPS_FROM_DRAFT = {"draft": (), "sent": ("sent",), "acknowledged": ("sent", "acknowledged"),
                        "cancelled": ("cancelled",)}
+PO_RECEIVED = ("received", "short_closed")
+RECEIVABLE_FILE_STATUSES = ("sent", "acknowledged")
 PO_HEADER_FIELDS = ("po_number", "supplier_ref", "po_date", "target_delivery_date", "currency",
                     "payment_terms", "incoterm", "quote_ref", "status")
 PO_FROZEN_HEADER = ("supplier_ref", "currency", "quote_ref")
@@ -911,7 +913,7 @@ def _po_row(row: dict, columns) -> dict:
     line_no = int(raw_line)
     context = f"PO {po_number} line {line_no}"
     status = _required(row, "status")
-    if status not in PO_STATUSES:
+    if status not in PO_FILE_STATUSES:
         raise ImportRefused(f"PO {po_number} status must be draft, sent, acknowledged or cancelled: {status}")
     incoterm = _required(row, "incoterm")
     if incoterm not in INCOTERMS:
@@ -1031,6 +1033,17 @@ def import_po(path, *, commit: bool = False) -> IntakeResult:
         return result
 
     old_status = existing.status
+    if old_status in PO_RECEIVED:
+        # G-2: reached by receipt, never by file. The PO file that raised it may be
+        # re-imported unchanged at its last file status; anything else is refused.
+        stored = {line.line_no: _stored_po_line(line) for line in existing.lines.all()}
+        observed = {row["line_no"]: {field: row[field] for field in PO_LINE_FIELDS} for row in parsed}
+        if (status in RECEIVABLE_FILE_STATUSES and stored == observed
+                and all(getattr(existing, field) == value for field, value in header_values.items())):
+            return result
+        raise ImportRefused(f"PO {po_number} is {old_status} and cannot change")
+    if status == "cancelled" and existing.receipts.exists():
+        raise ImportRefused(f"PO {po_number} has goods received and cannot be cancelled")
     if status != old_status and status not in PO_FORWARD[old_status]:
         suffix = "; nothing leaves cancelled" if old_status == "cancelled" else ""
         raise ImportRefused(f"PO {po_number} status cannot move from {old_status} to {status}{suffix}")
