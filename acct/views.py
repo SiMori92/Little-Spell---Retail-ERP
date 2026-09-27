@@ -38,6 +38,9 @@ REPORT_GROUPS = (
         ("open-pos", "Open purchase orders", "Pieces and NT$ committed by supplier and SKU; drafts listed apart."),
         ("po-exceptions", "Purchase exceptions", "Received not invoiced, invoiced not received, refused matches."),
         ("landed-cost", "Landed cost by PO line", "Pieces, landed value, per-piece cost and damage written off."),
+        ("payables", "Supplier payables", "Open 2171 by supplier and posted invoice."),
+        ("supplier-deposits", "Supplier deposits", "Account 1266 paid, applied, returned and forfeited by PO."),
+        ("deposit-reconciliation", "Deposit reconciliation", "Invoice-stated versus computed applications."),
     )},
 )
 
@@ -107,7 +110,8 @@ def report_detail(request, slug):
     if builder is None:
         raise Http404("unknown report")
     try:
-        if slug in {"ig-pipeline", "open-pos", "po-exceptions", "landed-cost"}:
+        if slug in {"ig-pipeline", "open-pos", "po-exceptions", "landed-cost", "payables",
+                    "supplier-deposits", "deposit-reconciliation"}:
             period = request.GET.get("as_of") or timezone.localtime(
                 timezone.now(), ZoneInfo("Asia/Taipei")).date().isoformat()
         else:

@@ -1,0 +1,9 @@
+{
+  "kind": "pay",
+  "source": "authored",
+  "verified": true,
+  "header": ["payment_ref", "paid_on", "supplier_ref", "po_number", "invoice_no", "payment_kind", "amount_twd", "bank_account", "bank_ref", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_pay_DEP-002.csv",
+  "actual_filename_pattern": "pay_<payment_ref>.csv"
+}

@@ -1,0 +1,2 @@
+invoice_no,gui_no,invoice_date,po_number,receipt_no,line_no,sku,qty_pieces_invoiced,unit_price_twd,setup_charge_twd,line_amount_twd,freight_twd,tax_twd,tax_creditable_twd,invoice_total_twd,deposit_applied_twd,evidence_ref
+INV-B,,2026-01-25,PO-2026-002,R2,2,TS-FS-004-P,7500,9.0000,3500.0000,71000.0000,0.0000,3550.0000,0.0000,74550.0000,21300.0000,SAMPLE synthetic supplier invoice INV-B

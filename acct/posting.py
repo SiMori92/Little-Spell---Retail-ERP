@@ -1,4 +1,4 @@
-"""Frozen v1.7 event catalogue binding. No catch-all or guessed amounts."""
+"""Frozen v1.8 event catalogue binding. No catch-all or guessed amounts."""
 from datetime import date
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
@@ -361,6 +361,10 @@ def po_received(e):
     lines += [dr("5121", row["landed_cost_twd"], sku=row["sku"]) for row in damaged]
     lines += [dr("1268", creditable), cr("2171", c["supplier"]), cr("2172", c["freight"]),
               cr("2192", c["duty"]), cr("1232", c["in_transit"])]
+    # Addendum H.2 is a self-balancing application pair outside the unchanged G.5.1 identity.
+    deposit_applied = money(p.get("deposit_applied_twd", 0))
+    if deposit_applied:
+        lines += [dr("2171", deposit_applied), cr("1266", deposit_applied)]
     return [x for x in lines if x.debit or x.credit]
 
 
@@ -375,9 +379,28 @@ def po_adjusted(e):
 
 
 def po_paid(e):
-    if not e.payload.get("bank_ref"):
-        raise PostingError("PO payment needs bank_ref")
-    return standard(e, e.payload.get("payable_account", "2171"), e.payload.get("bank_account", "1121"))
+    p = e.payload
+    kind = required(p, "payment_kind")
+    if kind not in ("deposit", "balance", "deposit_refund", "deposit_forfeit"):
+        raise PostingError("unknown payment_kind; expected deposit, balance, deposit_refund or deposit_forfeit")
+    required(p, "po_number")
+    required(p, "evidence_ref")
+    if e.currency != "TWD" or p.get("bank_account") != "1121":
+        raise PostingError("supplier payments are TWD through bank account 1121 only (R-2.6, IFRIC 22)")
+    if kind == "deposit_forfeit":
+        if p.get("bank_ref"):
+            raise PostingError("deposit_forfeit has no bank_ref")
+    elif not p.get("bank_ref"):
+        raise PostingError(f"{kind} payment requires bank_ref")
+    value = money(required(p, "amount_twd"))
+    if kind == "deposit":
+        return pair("1266", "1121", value)
+    if kind == "balance":
+        required(p, "invoice_no")
+        return pair("2171", "1121", value)
+    if kind == "deposit_refund":
+        return pair("1121", "1266", value)
+    return pair("6199", "1266", value)
 
 
 def inventory_adjusted(e):

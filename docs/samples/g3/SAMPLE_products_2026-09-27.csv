@@ -1,0 +1,3 @@
+sku,name,pieces_per_sale_unit,supplier_ref,ingredient_ref,evidence_ref,product_type
+TS-MT-005-S,SAMPLE Egyptian Ankh Gold Foil,1,SUP-002,compliance/suppliers/SAMPLE_TS-MT-005-S_decl.pdf,SAMPLE synthetic product snapshot for Slice G-3,sellable
+TS-FS-004-P,SAMPLE Cyberpunk Neon Rave Set,5,SUP-002,compliance/suppliers/SAMPLE_TS-FS-004-P_decl.pdf,SAMPLE synthetic product snapshot for Slice G-3,sellable

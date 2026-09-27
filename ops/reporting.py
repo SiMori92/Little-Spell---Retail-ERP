@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from acct.reporting import Column, Report, ReportSection, absent, known, period_bounds
 from core.models import DatasetSettings
-from ops.models import GoodsReceipt, IgDeal, LedgerEvent, PurchaseOrderLine, SupplierInvoice
+from ops.models import (GoodsReceipt, IgDeal, LedgerEvent, PurchaseOrder, PurchaseOrderLine,
+                        SupplierInvoice, SupplierPayment)
 
 PAID = {"paid", "shipped", "followed_up"}
 QUOTED = {"quoted", *PAID}
@@ -262,5 +263,104 @@ def landed_cost(as_of_text):
                    "see Purchase exceptions for the rest."])
 
 
+def _computed_deposit(invoice, as_of):
+    event = LedgerEvent.objects.filter(event_type="po.received", dataset_kind=invoice.dataset_kind,
+                                       payload__invoice_no=invoice.invoice_no,
+                                       occurred_at__date__lte=as_of, posted_entry_id__isnull=False,
+                                       posting_error__isnull=True).first()
+    return Decimal(str(event.payload.get("deposit_applied_twd", "0"))) if event else Decimal(0)
+
+
+def payables(as_of_text):
+    """Open 2171 by supplier and posted supplier invoice (Addendum H)."""
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    columns = (Column("supplier", "Supplier", False), Column("invoice", "Invoice", False),
+               Column("po", "PO", False), Column("total", "Invoice total NT$"),
+               Column("deposit", "Deposit applied NT$"), Column("paid", "Balance paid NT$"),
+               Column("open", "Open 2171 NT$"), Column("days", "Days since invoice"))
+    rows = []
+    for invoice in SupplierInvoice.objects.filter(dataset_kind=kind, invoice_date__lte=as_of).select_related(
+            "po__supplier").order_by("po__supplier__supplier_ref", "invoice_no"):
+        event_exists = LedgerEvent.objects.filter(event_type="po.received", dataset_kind=kind,
+                                                  payload__invoice_no=invoice.invoice_no,
+                                                  occurred_at__date__lte=as_of,
+                                                  posted_entry_id__isnull=False).exists()
+        if not event_exists:
+            continue
+        applied = _computed_deposit(invoice, as_of)
+        paid = sum((payment.amount_twd for payment in invoice.payments.filter(
+            payment_kind="balance", paid_on__lte=as_of)), Decimal(0))
+        open_amount = invoice.invoice_total_twd - applied - paid
+        rows.append({"supplier": invoice.po.supplier.supplier_ref, "invoice": invoice.invoice_no,
+                     "po": invoice.po.po_number, "total": known(invoice.invoice_total_twd, as_of_text, kind),
+                     "deposit": known(applied, as_of_text, kind), "paid": known(paid, as_of_text, kind),
+                     "open": known(open_amount, as_of_text, kind),
+                     "days": known((as_of - invoice.invoice_date).days, as_of_text, kind, unit="days")})
+    return Report("payables", "Supplier payables by invoice", as_of_text, kind, columns, rows,
+                  ["Open 2171 = invoice total - computed deposit applied - posted balance payments."],
+                  query_key="as_of")
+
+
+def supplier_deposits(as_of_text):
+    """Account 1266 by PO, retaining age from the first deposit."""
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    columns = (Column("supplier", "Supplier", False), Column("po", "PO", False),
+               Column("status", "PO status", False), Column("paid", "Deposits paid NT$"),
+               Column("applied", "Applied NT$"), Column("refunded", "Refunded NT$"),
+               Column("forfeited", "Forfeited NT$"), Column("open", "Open 1266 NT$"),
+               Column("days", "Days since first deposit"))
+    rows = []
+    for po in PurchaseOrder.objects.filter(dataset_kind=kind).select_related("supplier").order_by("po_number"):
+        payments = list(SupplierPayment.objects.filter(po=po, paid_on__lte=as_of).order_by("paid_on"))
+        deposits = [p for p in payments if p.payment_kind == "deposit"]
+        if not deposits:
+            continue
+        paid = sum((p.amount_twd for p in deposits), Decimal(0))
+        refunded = sum((p.amount_twd for p in payments if p.payment_kind == "deposit_refund"), Decimal(0))
+        forfeited = sum((p.amount_twd for p in payments if p.payment_kind == "deposit_forfeit"), Decimal(0))
+        applied = sum((Decimal(str(event.payload.get("deposit_applied_twd", "0")))
+                       for event in LedgerEvent.objects.filter(
+                           event_type="po.received", dataset_kind=kind, payload__po_number=po.po_number,
+                           occurred_at__date__lte=as_of, posted_entry_id__isnull=False)), Decimal(0))
+        open_amount = paid - applied - refunded - forfeited
+        rows.append({"supplier": po.supplier.supplier_ref, "po": po.po_number, "status": po.status,
+                     "paid": known(paid, as_of_text, kind), "applied": known(applied, as_of_text, kind),
+                     "refunded": known(refunded, as_of_text, kind),
+                     "forfeited": known(forfeited, as_of_text, kind),
+                     "open": known(open_amount, as_of_text, kind),
+                     "days": known((as_of - deposits[0].paid_on).days, as_of_text, kind, unit="days")})
+    return Report("supplier-deposits", "Supplier deposits by PO", as_of_text, kind, columns, rows,
+                  ["Open 1266 = deposits paid - applied - refunded - forfeited; it must be zero at PO close."],
+                  query_key="as_of")
+
+
+def deposit_reconciliation(as_of_text):
+    """Invoice-stated versus computed application; differences are listed, never posted."""
+    as_of = _as_date(as_of_text)
+    kind = DatasetSettings.load().dataset_kind
+    columns = (Column("supplier", "Supplier", False), Column("po", "PO", False),
+               Column("invoice", "Invoice", False), Column("stated", "Invoice-stated NT$"),
+               Column("computed", "Computed NT$"), Column("difference", "Difference NT$"))
+    rows = []
+    for invoice in SupplierInvoice.objects.filter(dataset_kind=kind, invoice_date__lte=as_of).select_related(
+            "po__supplier").order_by("invoice_no"):
+        computed = _computed_deposit(invoice, as_of)
+        difference = invoice.deposit_applied_twd - computed
+        if difference:
+            rows.append({"supplier": invoice.po.supplier.supplier_ref, "po": invoice.po.po_number,
+                         "invoice": invoice.invoice_no,
+                         "stated": known(invoice.deposit_applied_twd, as_of_text, kind),
+                         "computed": known(computed, as_of_text, kind),
+                         "difference": known(difference, as_of_text, kind)})
+    return Report("deposit-reconciliation", "Deposit application reconciliation", as_of_text, kind,
+                  columns, rows, ["Only differences are listed. The computed figure is posted; the supplier's "
+                                  "invoice-stated figure is recorded without a journal entry."],
+                  query_key="as_of")
+
+
 REPORT_BUILDERS = {"ig-pipeline": ig_pipeline, "repeat-rate": repeat_rate, "open-pos": open_pos,
-                   "po-exceptions": po_exceptions, "landed-cost": landed_cost}
+                   "po-exceptions": po_exceptions, "landed-cost": landed_cost, "payables": payables,
+                   "supplier-deposits": supplier_deposits,
+                   "deposit-reconciliation": deposit_reconciliation}

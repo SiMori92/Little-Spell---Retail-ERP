@@ -170,10 +170,9 @@ class IgDealStatus(Provenance):
         raise RuntimeError("Instagram deal status history is append-only")
 
 
-# A PO file may state only these; `received` and `short_closed` are reached
-# automatically when every line has a matched, posted receipt (G-2).
+# A PO file may state only these; the later states are reached automatically.
 PO_FILE_STATUSES = ("draft", "sent", "acknowledged", "cancelled")
-PO_STATUSES = PO_FILE_STATUSES + ("received", "short_closed")
+PO_STATUSES = PO_FILE_STATUSES + ("received", "short_closed", "closed")
 PO_INCOTERMS = ("EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF")
 
 
@@ -346,8 +345,6 @@ class SupplierInvoice(AppendOnly):
                                    name="ops_invoice_creditable_within_tax"),
             models.CheckConstraint(condition=Q(tax_creditable_twd=0) | ~Q(gui_no=""),
                                    name="ops_invoice_creditable_needs_gui"),
-            # I-8: deposits arrive with G-3.
-            models.CheckConstraint(condition=Q(deposit_applied_twd=0), name="ops_invoice_no_deposit_before_g3"),
             models.CheckConstraint(condition=Q(gui_no="") | Q(gui_no__regex=r"^[A-Z]{2}[0-9]{8}$"),
                                    name="ops_invoice_gui_no_shape"),
             models.CheckConstraint(condition=~Q(evidence_ref=""), name="ops_invoice_evidence_required"),
@@ -373,6 +370,46 @@ class SupplierInvoiceLine(AppendOnly):
                             + models.F("setup_charge_twd")),
                 name="ops_invoice_line_amount_identity",
             ),
+        ]
+
+
+PAYMENT_KINDS = ("deposit", "balance", "deposit_refund", "deposit_forfeit")
+
+
+class SupplierPayment(AppendOnly):
+    """One immutable supplier cash movement, sourced from the payment schedule (G-3)."""
+
+    payment_ref = models.CharField(max_length=32)
+    paid_on = models.DateField()
+    supplier = models.ForeignKey(Supplier, related_name="payments", on_delete=models.PROTECT)
+    po = models.ForeignKey(PurchaseOrder, related_name="payments", on_delete=models.PROTECT)
+    invoice = models.ForeignKey(SupplierInvoice, related_name="payments", null=True, blank=True,
+                                on_delete=models.PROTECT)
+    payment_kind = models.CharField(max_length=16, choices=[(value, value) for value in PAYMENT_KINDS])
+    amount_twd = models.DecimalField(max_digits=18, decimal_places=4)
+    bank_account = models.CharField(max_length=4)
+    bank_ref = models.CharField(max_length=255, blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "payment_ref"],
+                                    name="ops_supplier_payment_ref"),
+            models.CheckConstraint(condition=Q(payment_kind__in=PAYMENT_KINDS),
+                                   name="ops_supplier_payment_kind"),
+            models.CheckConstraint(condition=Q(amount_twd__gt=0), name="ops_supplier_payment_positive"),
+            models.CheckConstraint(condition=Q(bank_account="1121"), name="ops_supplier_payment_bank_1121"),
+            models.CheckConstraint(condition=~Q(evidence_ref=""),
+                                   name="ops_supplier_payment_evidence"),
+            models.CheckConstraint(
+                condition=(Q(invoice__isnull=False, payment_kind="balance") |
+                           (Q(invoice__isnull=True) & ~Q(payment_kind="balance"))),
+                name="ops_supplier_payment_invoice_shape",
+            ),
+            models.CheckConstraint(condition=Q(payment_kind="deposit_forfeit") | ~Q(bank_ref=""),
+                                   name="ops_supplier_payment_bank_ref"),
+            models.CheckConstraint(condition=~Q(payment_kind="deposit_forfeit") | Q(bank_ref=""),
+                                   name="ops_supplier_forfeit_no_bank_ref"),
         ]
 
 

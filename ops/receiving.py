@@ -10,7 +10,7 @@ nothing and is listed by /reports/po-exceptions/ (I-1). Dry-run is the default.
 import csv
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from django.db import transaction
@@ -39,6 +39,7 @@ INV_HEADER_FIELDS = ("invoice_no", "gui_no", "invoice_date", "po_number", "recei
                      "tax_twd", "tax_creditable_twd", "invoice_total_twd", "deposit_applied_twd",
                      "evidence_ref")
 YES_NO = {"yes": True, "no": False}
+FOUR_DP = Decimal("0.0001")
 
 
 def _authored(kind: str) -> dict:
@@ -356,9 +357,6 @@ def import_invoice(path, *, commit: bool = False) -> ReceivingResult:
             _match(receipt, result)
         return result
 
-    # I-8: deposits (1266) are ruled with G-3.
-    if header["deposit_applied_twd"]:
-        raise ImportRefused(f"{label} deposit_applied_twd must be 0; supplier deposits arrive with G-3")
     tax, creditable = header["tax_twd"], header["tax_creditable_twd"]
     if creditable > tax:
         raise ImportRefused(f"{label} tax_creditable_twd {creditable} exceeds tax_twd {tax}")
@@ -487,7 +485,42 @@ def value_pair(receipt: GoodsReceipt, invoice: SupplierInvoice):
                               invoice_no=invoice.invoice_no, gui_no=invoice.gui_no,
                               supplier_total=invoice.invoice_total_twd, tax=invoice.tax_twd,
                               tax_creditable=invoice.tax_creditable_twd)
+    applied = deposit_application(receipt, invoice)
+    payload["deposit_applied_twd"] = str(applied)
+    payload["invoice_stated_deposit_twd"] = str(invoice.deposit_applied_twd)
     return values, payload
+
+
+def deposit_application(receipt: GoodsReceipt, invoice: SupplierInvoice) -> Decimal:
+    """Addendum H.2: deterministic value-pro-rata application, with an exact closing remainder."""
+    from ops.payments import applied_for_po, payment_totals
+
+    po = receipt.po
+    deposits = payment_totals(po)["deposit"]
+    if not deposits:
+        return Decimal("0.0000")
+    already = applied_for_po(po)
+    po_value = sum((line.line_total_twd for line in po.lines.all()), Decimal(0))
+    receipt_value = sum((line.line_amount_twd for line in invoice.lines.all()), Decimal(0))
+    posted = set(LedgerEvent.objects.filter(event_type="po.received", dataset_kind=po.dataset_kind,
+                                            payload__po_number=po.po_number,
+                                            posted_entry_id__isnull=False)
+                 .values_list("payload__receipt_no", flat=True))
+    covered = set(GoodsReceiptLine.objects.filter(po_line__po=po,
+                                                   receipt__receipt_no__in=posted | {receipt.receipt_no})
+                  .values_list("po_line_id", flat=True))
+    completes = not po.lines.exclude(pk__in=covered).exists()
+    return pro_rata_deposit(deposits, receipt_value, po_value, already=already, completes=completes)
+
+
+def pro_rata_deposit(deposits: Decimal, receipt_value: Decimal, po_value: Decimal, *,
+                     already: Decimal = Decimal(0), completes: bool = False) -> Decimal:
+    """Pure H.2 allocator used by receipt matching and the rounding/remainder regression tests."""
+    remaining = max(Decimal(0), deposits - already)
+    if completes:
+        return remaining.quantize(FOUR_DP)
+    share = (deposits * receipt_value / po_value).quantize(FOUR_DP, rounding=ROUND_HALF_UP)
+    return min(share, remaining).quantize(FOUR_DP)
 
 
 def _candidate(receipt: GoodsReceipt, payload: dict) -> LedgerEvent:

@@ -1,0 +1,2 @@
+po_number,receipt_no,received_on,line_no,sku,qty_pieces_good,qty_pieces_damaged,damaged_credited,short_close,short_close_reason,evidence_ref
+PO-2026-002,R1,2026-01-20,1,TS-MT-005-S,3000,0,no,no,,SAMPLE synthetic delivery note PO-2026-002 R1

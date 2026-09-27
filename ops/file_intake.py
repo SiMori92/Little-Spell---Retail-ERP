@@ -886,7 +886,7 @@ PO_FORWARD = {"draft": ("sent", "cancelled"), "sent": ("acknowledged", "cancelle
 # A PO is always created as draft; a file first seen later walks these steps.
 PO_STEPS_FROM_DRAFT = {"draft": (), "sent": ("sent",), "acknowledged": ("sent", "acknowledged"),
                        "cancelled": ("cancelled",)}
-PO_RECEIVED = ("received", "short_closed")
+PO_RECEIVED = ("received", "short_closed", "closed")
 RECEIVABLE_FILE_STATUSES = ("sent", "acknowledged")
 PO_HEADER_FIELDS = ("po_number", "supplier_ref", "po_date", "target_delivery_date", "currency",
                     "payment_terms", "incoterm", "quote_ref", "status")

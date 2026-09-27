@@ -10,7 +10,7 @@ from pathlib import Path
 from acct.models import AcctManualEntry, Account, ClearingCause, JournalLine
 from acct.reporting import (CONTRIBUTION_ACCOUNTS, _net, contribution_skus, dataset_kind,
                             order_results, period_bounds, quantize, TAIPEI)
-from ops.models import InventoryMove, LedgerEvent
+from ops.models import InventoryMove, LedgerEvent, PurchaseOrder, SupplierPayment
 from django.db.models import Q
 
 RAILS = ("1191", "1192", "1193")
@@ -111,7 +111,28 @@ def g2(period):
     tax = _net(JournalLine.objects.filter(account_id="2205", entry__dataset_kind=kind,
                                           entry__occurred_at__lt=end), ["2205"], direction="credit")
     old = [item for item in aging["items"] if item["business_days"] > 15 and not item["cause"]]
-    details = {"aging": aging, "unexplained_over_15_business_days": len(old), "account_2205_twd": str(tax)}
+    deposit_items = []
+    for po in PurchaseOrder.objects.filter(dataset_kind=kind,
+                                           status__in=["received", "short_closed", "cancelled"]).order_by(
+                                               "po_number"):
+        payments = SupplierPayment.objects.filter(po=po, paid_on__lt=end.date())
+        paid = sum((row.amount_twd for row in payments if row.payment_kind == "deposit"), Decimal(0))
+        cleared = sum((row.amount_twd for row in payments
+                       if row.payment_kind in {"deposit_refund", "deposit_forfeit"}), Decimal(0))
+        applied = sum((Decimal(str(event.payload.get("deposit_applied_twd", "0")))
+                       for event in LedgerEvent.objects.filter(
+                           event_type="po.received", dataset_kind=kind, payload__po_number=po.po_number,
+                           occurred_at__lt=end, posted_entry_id__isnull=False, posting_error__isnull=True)),
+                      Decimal(0))
+        open_amount = paid - cleared - applied
+        if open_amount:
+            deposit_items.append({"po_number": po.po_number, "open_1266_twd": str(open_amount)})
+    details = {"aging": aging, "unexplained_over_15_business_days": len(old),
+               "account_2205_twd": str(tax), "po_deposit_balances": deposit_items}
+    if deposit_items:
+        named = ", ".join(f"{item['po_number']}={item['open_1266_twd']}" for item in deposit_items)
+        return GateResult("G-2", "FAIL", f"non-zero 1266 supplier deposit by PO: {named} (R-2.5, H.3.3)",
+                          details)
     source = LedgerEvent.objects.filter(event_type="settlement.received", dataset_kind=kind,
         occurred_at__lt=end, posted_entry_id__isnull=False, posting_error__isnull=True).exists()
     if not source:
