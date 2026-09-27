@@ -61,6 +61,12 @@ class PreCommitHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "--verify", "HEAD").returncode, 0)
 
+    def test_documented_header_template_csv_is_allowed(self):
+        self.stage("docs/ig_deals_TEMPLATE.csv", "deal_id,line_no,customer_ref\n")
+        result = self.git("commit", "-m", "documented template")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("rev-parse", "--verify", "HEAD").returncode, 0)
+
     def test_non_sample_csv_in_docs_samples_is_rejected(self):
         self.stage("docs/samples/suppliers_2026-09-27.csv", "supplier_ref,legal_name\n")
         result = self.git("commit", "-m", "must fail")

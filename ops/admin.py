@@ -2,8 +2,8 @@
 
 from django.contrib import admin
 
-from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, InventoryMove,
-                        LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
+from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, IgDeal,
+                        IgDealStatus, InventoryMove, LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
                         ProductComplianceChange, Receipt, Shipment, StockCount,
                         StockCountLine, Supplier, SupplierChange)
 
@@ -76,6 +76,22 @@ class ProductComplianceChangeAdmin(ReadOnlyAdmin):
     list_display = ("sku", "field", "old", "new", "source_filename", "dataset_kind")
     list_filter = ("field", "dataset_kind")
     search_fields = ("sku", "source_filename", "evidence_ref")
+
+
+@admin.register(IgDeal)
+class IgDealAdmin(ReadOnlyAdmin):
+    list_display = ("deal_id", "line_no", "customer_ref", "status", "enquiry_at",
+                    "product", "consent_marketing", "dataset_kind")
+    list_filter = ("status", ("enquiry_at", admin.DateFieldListFilter), "lost_reason",
+                   "consent_marketing", "dataset_kind")
+    search_fields = ("deal_id", "customer_ref", "wallet_txn_id", "evidence_ref")
+
+
+@admin.register(IgDealStatus)
+class IgDealStatusAdmin(ReadOnlyAdmin):
+    list_display = ("deal_id", "status", "effective_on", "source_filename", "dataset_kind")
+    list_filter = ("status", "effective_on", "dataset_kind")
+    search_fields = ("deal_id", "source_filename")
 
 
 @admin.register(Channel)

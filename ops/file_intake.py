@@ -19,7 +19,8 @@ from core.models import DatasetSettings
 from ops.etsy_import import emit_event
 from ops.intake import ImportRefused, IntakeManifest, prepare_source
 from ops.models import (InventoryMove, LedgerEvent, Product, ProductComplianceChange,
-                        Receipt, StockCount, StockCountLine, Supplier, SupplierChange)
+                        IgDeal, IgDealStatus, Order, Receipt, StockCount, StockCountLine,
+                        Supplier, SupplierChange)
 from ops.pii import refuse_pii
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
@@ -35,6 +36,12 @@ CURRENCY_CODES = set(
     "AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BOV BRL BSD BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HRK HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SLL SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAF XAG XAU XBA XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG".split()
 )
 SKU_PATTERN = re.compile(r"TS-[A-Z]{2}-\d{3}-[SMLP]\Z")
+DEAL_PATTERN = re.compile(r"IG-\d{6}-\d{3}\Z")
+CUSTOMER_PATTERN = re.compile(r"C-\d{4,}\Z")
+PHONE_PATTERN = re.compile(r"\+?\d[\d\s-]{7,}")
+IG_STATUSES = ("enquiry", "quoted", "paid", "shipped", "followed_up", "lost")
+IG_STATUS_RANK = {status: rank for rank, status in enumerate(IG_STATUSES)}
+LOST_REASONS = {"no_reply", "price", "shipping_cost", "out_of_stock", "other"}
 TZ = ZoneInfo("Asia/Taipei")
 
 
@@ -145,12 +152,28 @@ def _reference_manifest(kind: str, target_models: tuple[str, ...]) -> IntakeMani
     )
 
 
+def _ig_manifest() -> IntakeManifest:
+    fixture = load_schema("ig_deals")
+    if fixture["source"] != "authored":
+        raise ImportRefused("ig_deals schema fixture must have source authored")
+    month = r"\d{4}-(?:0[1-9]|1[0-2])"
+    return IntakeManifest(
+        kind="ig_deals", header=tuple(fixture["header"]), optional_columns=(),
+        verified=fixture["verified"],
+        actual_filename=re.compile(rf"ig_deals_{month}\.csv\Z"),
+        sample_filename=re.compile(rf"SAMPLE_ig_deals_{month}\.csv\Z"),
+        target_models=("IgDeal", "IgDealStatus"), events=(),
+        natural_key="dataset + deal_id + line_no",
+    )
+
+
 register_manifest("receipts", _receipt_manifest)
 register_manifest("counts", _count_manifest)
 register_manifest("suppliers", lambda: _reference_manifest(
     "suppliers", ("Supplier", "SupplierChange")))
 register_manifest("products", lambda: _reference_manifest(
     "products", ("Product", "ProductComplianceChange")))
+register_manifest("ig_deals", _ig_manifest)
 
 
 def _required(row: dict, field: str) -> str:
@@ -327,6 +350,232 @@ def import_products(path, *, commit: bool = False) -> IntakeResult:
         )
         prior.ingredient_ref = row["ingredient_ref"]
         prior.save(update_fields=["ingredient_ref"])
+        result.inserted_rows += 1
+    return result
+
+
+def _optional_date(raw: str, field: str):
+    return _date(raw, field) if raw.strip() else None
+
+
+def _optional_money(raw: str, field: str):
+    return _money(raw, field) if raw.strip() else None
+
+
+def _ig_row(row: dict, columns) -> dict:
+    refuse_pii(row, columns)
+    evidence = _required(row, "evidence_ref")
+    if PHONE_PATTERN.search(evidence):
+        raise ImportRefused("phone-shaped value detected in evidence_ref")
+    deal_id = _required(row, "deal_id")
+    if not DEAL_PATTERN.fullmatch(deal_id):
+        raise ImportRefused(f"deal_id must match ^IG-\\d{{6}}-\\d{{3}}$: {deal_id}")
+    raw_line = _required(row, "line_no")
+    if not raw_line.isdigit() or int(raw_line) < 1:
+        raise ImportRefused(f"deal {deal_id} line_no must be an integer >= 1")
+    customer_ref = _required(row, "customer_ref")
+    if not CUSTOMER_PATTERN.fullmatch(customer_ref):
+        raise ImportRefused(f"customer_ref must match ^C-\\d{{4,}}$: {customer_ref}")
+    status = _required(row, "status")
+    if status not in IG_STATUSES:
+        raise ImportRefused(f"deal {deal_id} status is not allowed: {status}")
+    enquiry_at = _date(_required(row, "enquiry_at"), "enquiry_at")
+    quoted_at = _optional_date(row["quoted_at"], "quoted_at")
+    quote = _optional_money(row["quote_twd"], "quote_twd")
+    follow_up = _optional_date(row["follow_up_on"], "follow_up_on")
+    lost_reason = row["lost_reason"].strip()
+    quoted_or_later = status in {"quoted", "paid", "shipped", "followed_up"}
+    paid_or_later = status in {"paid", "shipped", "followed_up"}
+    shipped_or_later = status in {"shipped", "followed_up"}
+    if quoted_or_later and (quoted_at is None or quote is None or quote <= 0):
+        raise ImportRefused(f"deal {deal_id} quoted_at and positive quote_twd are required from quoted onward")
+    if status in {"enquiry", "quoted"} and follow_up is None:
+        raise ImportRefused(f"deal {deal_id}: an open deal with no next action")
+    if status == "lost" and lost_reason not in LOST_REASONS:
+        raise ImportRefused(f"deal {deal_id} lost_reason is required when lost")
+    if status != "lost" and lost_reason:
+        raise ImportRefused(f"deal {deal_id} lost_reason is allowed only when lost")
+    sku = row["sku"].strip()
+    raw_qty = row["qty_packs"].strip()
+    unit_price = _optional_money(row["unit_price_twd"], "unit_price_twd")
+    shipping = _optional_money(row["shipping_charged_twd"], "shipping_charged_twd")
+    country = row["ship_country"].strip()
+    paid_at = _optional_date(row["paid_at"], "paid_at")
+    wallet = row["wallet_txn_id"].strip()
+    if paid_or_later:
+        if not sku:
+            raise ImportRefused(f"deal {deal_id} sku is required from paid onward")
+        if not raw_qty.isdigit() or int(raw_qty) <= 0:
+            raise ImportRefused(f"deal {deal_id} qty_packs must be a whole number > 0 from paid onward")
+        if unit_price is None or unit_price <= 0:
+            raise ImportRefused(f"deal {deal_id} unit_price_twd must be positive from paid onward")
+        if shipping is None:
+            raise ImportRefused(f"deal {deal_id} shipping_charged_twd is required from paid onward")
+        if country not in COUNTRY_CODES:
+            raise ImportRefused(f"deal {deal_id} ship_country must be ISO 3166-1 alpha-2 from paid onward")
+        if paid_at is None:
+            raise ImportRefused(f"deal {deal_id} paid_at is required from paid onward")
+        if not wallet:
+            raise ImportRefused(f"deal {deal_id} wallet_txn_id is required from paid onward")
+    qty = int(raw_qty) if raw_qty else None
+    ship_date = _optional_date(row["ship_date"], "ship_date")
+    if shipped_or_later and ship_date is None:
+        raise ImportRefused(f"deal {deal_id} ship_date is required from shipped onward")
+    consent = row["consent_marketing"].strip()
+    if consent not in {"", "yes", "no"}:
+        raise ImportRefused(f"deal {deal_id} consent_marketing must be yes, no or blank")
+    journey = _required(row, "journey_sent")
+    if journey not in {"none", "d0", "d10", "d30"}:
+        raise ImportRefused(f"deal {deal_id} journey_sent must be none, d0, d10 or d30")
+    return {
+        "deal_id": deal_id, "line_no": int(raw_line), "customer_ref": customer_ref,
+        "status": status, "enquiry_at": enquiry_at, "quoted_at": quoted_at,
+        "quote_twd": quote, "follow_up_on": follow_up, "lost_reason": lost_reason,
+        "product_id": sku or None, "qty_packs": qty, "unit_price_twd": unit_price,
+        "shipping_charged_twd": shipping, "ship_country": country, "paid_at": paid_at,
+        "wallet_txn_id": wallet, "ship_date": ship_date, "consent_marketing": consent,
+        "journey_sent": journey, "evidence_ref": evidence,
+    }
+
+
+def _ig_effective_on(row: dict) -> date:
+    return row["ship_date"] or row["paid_at"] or row["quoted_at"] or row["enquiry_at"]
+
+
+@transaction.atomic
+def import_ig_deals(path, *, commit: bool = False) -> IntakeResult:
+    path = Path(path)
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
+    source = manifest("ig_deals")
+    source_rows = prepare_source(path, settings.dataset_kind, source, commit=commit)
+    parsed = [_ig_row(row, source.header) for row in source_rows]
+    filename_month = path.name.removeprefix("SAMPLE_").removeprefix("ig_deals_").removesuffix(".csv")
+    for row in parsed:
+        enquiry_month = row["enquiry_at"].strftime("%Y-%m")
+        if enquiry_month != filename_month or row["deal_id"][3:9] != enquiry_month.replace("-", ""):
+            raise ImportRefused(f"deal {row['deal_id']} enquiry_at and deal_id month must match filename month {filename_month}")
+    keys = [(row["deal_id"], row["line_no"]) for row in parsed]
+    if len(keys) != len(set(keys)):
+        raise ImportRefused("Instagram file repeats a (deal_id, line_no)")
+    by_deal = {}
+    for row in parsed:
+        by_deal.setdefault(row["deal_id"], []).append(row)
+    common_fields = ("customer_ref", "status", "enquiry_at", "quoted_at", "quote_twd",
+                     "follow_up_on", "lost_reason", "shipping_charged_twd", "ship_country",
+                     "paid_at", "wallet_txn_id", "ship_date", "consent_marketing",
+                     "journey_sent", "evidence_ref")
+    for deal_id, rows in by_deal.items():
+        numbers = sorted(row["line_no"] for row in rows)
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise ImportRefused(f"deal {deal_id} has line_no gaps")
+        for field in common_fields:
+            if len({row[field] for row in rows}) != 1:
+                raise ImportRefused(f"deal {deal_id} has conflicting {field} across lines")
+    if settings.dataset_kind == "ACTUAL" and any(
+            row["status"] in {"paid", "shipped", "followed_up"} for row in parsed):
+        raise ImportRefused(
+            "paid Instagram deals cannot be committed as ACTUAL until H-0b (wallet statement + ledger) "
+            "is built — a paid deal with no payment evidence is cash nobody can prove"
+        )
+    product_ids = {row["product_id"] for row in parsed if row["product_id"]}
+    unknown_products = sorted(product_ids - set(Product.objects.filter(
+        pk__in=product_ids).values_list("pk", flat=True)))
+    if unknown_products:
+        raise ImportRefused(f"Instagram deal has unknown sku(s): {', '.join(unknown_products)}")
+    customer_refs = {row["customer_ref"] for row in parsed}
+    etsy_refs = sorted(Order.objects.filter(channel__code__iexact="etsy",
+        channel_order_id__in=customer_refs).values_list("channel_order_id", flat=True))
+    if etsy_refs:
+        raise ImportRefused(f"customer_ref appears on an Etsy order; C- codes are Instagram-only: {', '.join(etsy_refs)}")
+    wallets = {}
+    for row in parsed:
+        if row["wallet_txn_id"]:
+            wallets.setdefault(row["wallet_txn_id"], set()).add(row["deal_id"])
+    repeated = sorted(wallet for wallet, deals in wallets.items() if len(deals) > 1)
+    for wallet, deal_id in IgDeal.objects.filter(dataset_kind=settings.dataset_kind,
+            wallet_txn_id__in=wallets).values_list("wallet_txn_id", "deal_id"):
+        wallets[wallet].add(deal_id)
+        if len(wallets[wallet]) > 1:
+            repeated.append(wallet)
+    if repeated:
+        raise ImportRefused(f"wallet_txn_id is used by two different deal_ids: {', '.join(sorted(set(repeated)))}")
+    existing_rows = list(IgDeal.objects.select_for_update().filter(
+        dataset_kind=settings.dataset_kind, deal_id__in=by_deal).order_by("deal_id", "line_no"))
+    existing_by_deal = {}
+    for item in existing_rows:
+        existing_by_deal.setdefault(item.deal_id, []).append(item)
+    transitions = []
+    protected = ("quote_twd", "product_id", "qty_packs", "unit_price_twd", "wallet_txn_id")
+    all_fields = tuple(field.name for field in IgDeal._meta.fields
+                       if field.name not in {"id", "source_filename", "dataset_kind", "product"}) + ("product_id",)
+    for deal_id, rows in by_deal.items():
+        prior_rows = existing_by_deal.get(deal_id, [])
+        if not prior_rows:
+            transitions.append((deal_id, None, rows[0]))
+            continue
+        prior_statuses = {item.status for item in prior_rows}
+        if len(prior_statuses) != 1:
+            raise ImportRefused(f"deal {deal_id} stored lines have conflicting status")
+        old_status, new_status = prior_rows[0].status, rows[0]["status"]
+        old_lines = {item.line_no for item in prior_rows}
+        new_lines = {row["line_no"] for row in rows}
+        omitted = sorted(old_lines - new_lines)
+        if omitted:
+            raise ImportRefused(f"deal {deal_id} omits existing line_no(s): {', '.join(map(str, omitted))}")
+        if old_status == "lost" and new_status != "lost" or (
+                old_status != "lost" and new_status != "lost" and
+                IG_STATUS_RANK[new_status] < IG_STATUS_RANK[old_status]):
+            raise ImportRefused(f"deal {deal_id} status cannot move backward from {old_status} to {new_status}")
+        prior_by_line = {item.line_no: item for item in prior_rows}
+        changed = bool(new_lines - old_lines)
+        for row in rows:
+            prior = prior_by_line.get(row["line_no"])
+            if prior is None:
+                continue
+            if prior.customer_ref != row["customer_ref"]:
+                raise ImportRefused(f"deal {deal_id} customer_ref cannot change")
+            if prior.enquiry_at != row["enquiry_at"]:
+                raise ImportRefused(f"deal {deal_id} enquiry_at cannot change")
+            if row["status"] in {"paid", "shipped", "followed_up"} and prior.quote_twd is not None and prior.quote_twd != row["quote_twd"]:
+                raise ImportRefused(f"deal {deal_id} quote_twd cannot change once status >= paid")
+            if old_status in {"paid", "shipped", "followed_up"}:
+                for field in protected:
+                    if getattr(prior, field) != row[field]:
+                        label = "sku" if field == "product_id" else field
+                        raise ImportRefused(f"deal {deal_id} {label} cannot change once status >= paid")
+            changed = changed or any(getattr(prior, field) != row[field] for field in all_fields)
+        if new_status == old_status and changed:
+            raise ImportRefused(f"deal {deal_id} current state can change only with a forward status move")
+        if new_status != old_status:
+            transitions.append((deal_id, old_status, rows[0]))
+    result = IntakeResult(parsed_rows=len(parsed))
+    new_rows = sum(1 for row in parsed if not any(
+        item.line_no == row["line_no"] for item in existing_by_deal.get(row["deal_id"], [])))
+    result.would_write_rows = new_rows + len(transitions)
+    if not commit:
+        return result
+    for deal_id, rows in by_deal.items():
+        prior_by_line = {item.line_no: item for item in existing_by_deal.get(deal_id, [])}
+        for row in rows:
+            values = {key: value for key, value in row.items() if key != "product_id"}
+            values["product_id"] = row["product_id"]
+            prior = prior_by_line.get(row["line_no"])
+            if prior is None:
+                IgDeal.objects.create(**values, source_filename=path.name,
+                                      dataset_kind=settings.dataset_kind)
+                result.inserted_rows += 1
+            elif prior.status != row["status"]:
+                for field, value in values.items():
+                    setattr(prior, field, value)
+                prior.source_filename = path.name
+                # ``product_id`` is a field attname rather than the model field name;
+                # a full save also keeps the status and its complete new snapshot atomic.
+                prior.save()
+    for deal_id, _old_status, row in transitions:
+        IgDealStatus.objects.create(
+            deal_id=deal_id, status=row["status"], effective_on=_ig_effective_on(row),
+            source_filename=path.name, dataset_kind=settings.dataset_kind,
+        )
         result.inserted_rows += 1
     return result
 

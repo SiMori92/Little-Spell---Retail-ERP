@@ -10,8 +10,9 @@ from django.utils import timezone
 
 from acct.reporting import Figure, REPORT_BUILDERS, period_bounds
 from acct.reconciliation import RECONCILIATION_BUILDERS
+from ops.reporting import REPORT_BUILDERS as OPS_REPORT_BUILDERS
 
-ALL_REPORT_BUILDERS = {**REPORT_BUILDERS, **RECONCILIATION_BUILDERS}
+ALL_REPORT_BUILDERS = {**REPORT_BUILDERS, **RECONCILIATION_BUILDERS, **OPS_REPORT_BUILDERS}
 
 REPORT_GROUPS = (
     {"id": "performance", "title": "Performance", "description": "See how each order, product and channel contributes.", "items": (
@@ -28,6 +29,10 @@ REPORT_GROUPS = (
     {"id": "reconciliation", "title": "Reconciliation", "description": "Find open clearing and freight differences.", "items": (
         ("settlement-aging", "Settlement aging", "Open rail items, business-day age and named causes."),
         ("carrier-reconciliation", "Carrier invoices", "Compare accruals, invoices and remaining 2191."),
+    )},
+    {"id": "instagram", "title": "Instagram", "description": "Review the file-based, no-PII sales pipeline.", "items": (
+        ("ig-pipeline", "Instagram pipeline", "Follow-ups, consented journey steps and funnel conversion."),
+        ("repeat-rate", "Repeat rate — Instagram only", "Customer repeat rate by first-paid cohort."),
     )},
 )
 
@@ -52,26 +57,33 @@ def export_csv(report):
     writer = csv.writer(response)
     writer.writerow(["dataset_kind", report.dataset_kind, "cost_basis", report.cost_basis,
                      "generated_at", timezone.now().isoformat()])
-    header = []
-    for column in report.columns:
-        header.append(column.label)
-        if column.figure:
-            header += [f"{column.key}_dataset_kind", f"{column.key}_cost_basis",
-                       f"{column.key}_source_period", f"{column.key}_unit", f"{column.key}_reason"]
-    writer.writerow(header)
-    for row in report.rows:
-        output = []
-        for column in report.columns:
-            value = row[column.key]
+    tables = [(None, report.columns, report.rows)] if not report.sections else [
+        (section.title, section.columns, section.rows) for section in report.sections]
+    for index, (title, columns, rows) in enumerate(tables):
+        if index:
+            writer.writerow([])
+        if title:
+            writer.writerow(["section", title])
+        header = []
+        for column in columns:
+            header.append(column.label)
             if column.figure:
-                if not isinstance(value, Figure):
-                    raise ValueError(f"figure column {column.key} lacks provenance")
-                output += ["ABSENT" if value.amount is None else str(value.amount),
-                           value.dataset_kind, value.cost_basis, value.source_period,
-                           value.unit, _csv_text(value.reason)]
-            else:
-                output.append(_csv_text(value))
-        writer.writerow(output)
+                header += [f"{column.key}_dataset_kind", f"{column.key}_cost_basis",
+                           f"{column.key}_source_period", f"{column.key}_unit", f"{column.key}_reason"]
+        writer.writerow(header)
+        for row in rows:
+            output = []
+            for column in columns:
+                value = row[column.key]
+                if column.figure:
+                    if not isinstance(value, Figure):
+                        raise ValueError(f"figure column {column.key} lacks provenance")
+                    output += ["ABSENT" if value.amount is None else str(value.amount),
+                               value.dataset_kind, value.cost_basis, value.source_period,
+                               value.unit, _csv_text(value.reason)]
+                else:
+                    output.append(_csv_text(value))
+            writer.writerow(output)
     return response
 
 
@@ -90,36 +102,46 @@ def report_detail(request, slug):
     if builder is None:
         raise Http404("unknown report")
     try:
-        period = _period(request)
+        if slug == "ig-pipeline":
+            period = request.GET.get("as_of") or timezone.localtime(
+                timezone.now(), ZoneInfo("Asia/Taipei")).date().isoformat()
+        else:
+            period = _period(request)
         report = builder(period)
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
     if request.GET.get("format") == "csv":
         return export_csv(report)
-    display_rows = []
-    for row in report.rows:
-        cells = []
-        for column in report.columns:
-            value = row[column.key]
-            if column.figure:
-                if not isinstance(value, Figure):
-                    raise ValueError(f"figure column {column.key} lacks provenance")
-                if value.amount is None:
-                    amount_text = "ABSENT"
-                elif value.unit == "TWD":
-                    amount_text = f"NT${value.amount:,.2f}"
+    def display_table(columns, rows):
+        display_rows = []
+        for row in rows:
+            cells = []
+            for column in columns:
+                value = row[column.key]
+                if column.figure:
+                    if not isinstance(value, Figure):
+                        raise ValueError(f"figure column {column.key} lacks provenance")
+                    if value.amount is None:
+                        amount_text = "ABSENT"
+                    elif value.unit == "TWD":
+                        amount_text = f"NT${value.amount:,.2f}"
+                    else:
+                        amount_text = f"{value.amount:,.0f} {value.unit}"
+                    basis_label = ("PROVISIONAL COST BASIS — NOT ACTUAL" + (" [ESTIMATE]" if value.estimate else "")
+                                   if value.cost_basis == "provisional" else
+                                   "ABSENT" if value.cost_basis == "absent" else "")
+                    cells.append({"text": amount_text, "figure": True, "label": basis_label,
+                                  "reason": value.reason, "kind": value.dataset_kind,
+                                  "basis": value.cost_basis, "period": value.source_period,
+                                  "unit": value.unit})
                 else:
-                    amount_text = f"{value.amount:,.0f} {value.unit}"
-                basis_label = ("PROVISIONAL COST BASIS — NOT ACTUAL" + (" [ESTIMATE]" if value.estimate else "")
-                               if value.cost_basis == "provisional" else
-                               "ABSENT" if value.cost_basis == "absent" else "")
-                cells.append({"text": amount_text, "figure": True, "label": basis_label,
-                              "reason": value.reason, "kind": value.dataset_kind,
-                              "basis": value.cost_basis, "period": value.source_period,
-                              "unit": value.unit})
-            else:
-                cells.append({"text": str(value), "figure": False, "label": "", "reason": "",
-                              "kind": "", "basis": "", "period": "", "unit": ""})
-        display_rows.append(cells)
+                    cells.append({"text": str(value), "figure": False, "label": "", "reason": "",
+                                  "kind": "", "basis": "", "period": "", "unit": ""})
+            display_rows.append(cells)
+        return display_rows
+    display_rows = display_table(report.columns, report.rows)
+    display_sections = [{"title": section.title, "columns": section.columns,
+                         "rows": display_table(section.columns, section.rows)} for section in report.sections]
     return render(request, "reports/report.html", {"report": report, "display_rows": display_rows,
-                                                   "row_count": len(display_rows)})
+                                                   "display_sections": display_sections,
+                                                   "row_count": len(display_rows) + sum(len(s["rows"]) for s in display_sections)})

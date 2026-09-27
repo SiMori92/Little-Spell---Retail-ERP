@@ -2,16 +2,22 @@
 {% block title %}{{ report.title }} · Little Spell Ledger{% endblock %}
 {% block section_label %}Reports{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'report-index' %}?period={{ report.period }}"><span aria-hidden="true">←</span> All reports</a>
-<div class="page-heading report-heading"><div><p class="eyebrow">REPORT DETAIL</p><h1>{{ report.title }}</h1><p class="page-intro">Review the available evidence for the selected month. Each cell retains its dataset, basis and source period.</p></div><a class="button button-primary" href="?period={{ report.period }}&amp;format=csv">Download CSV <span aria-hidden="true">↓</span></a></div>
+<a class="back-link" href="{% url 'report-index' %}"><span aria-hidden="true">←</span> All reports</a>
+<div class="page-heading report-heading"><div><p class="eyebrow">REPORT DETAIL</p><h1>{{ report.title }}</h1><p class="page-intro">Review the available evidence. Each figure retains its dataset, basis and source period.</p></div><a class="button button-primary" href="?{{ report.query_key }}={{ report.period }}&amp;format=csv">Download CSV <span aria-hidden="true">↓</span></a></div>
 <div class="report-meta" aria-label="Report provenance"><div><span>Source period</span><strong>{{ report.period }}</strong></div><div><span>Dataset</span><strong>{{ report.dataset_kind }}</strong></div><div><span>Overall cost basis</span><strong class="basis-text basis-{{ report.cost_basis }}">{{ report.cost_basis|upper }}</strong></div><div><span>Visible rows</span><strong id="row-count">{{ row_count }}</strong></div></div>
-<div class="table-panel">
+{% if report.sections %}
+{% for section in display_sections %}<div class="table-panel">
+  <div class="table-toolbar"><div><h2>{{ section.title }}</h2><p>Figures retain provenance and units.</p></div></div>
+  <div class="table-scroll" role="region" aria-label="{{ section.title }} table" tabindex="0"><table class="data-table"><thead><tr>{% for column in section.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody class="report-body">{% for cells in section.rows %}<tr>{% for cell in cells %}<td class="{% if cell.figure %}figure-cell basis-{{ cell.basis }}{% endif %}" data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{% if cell.figure %}<span class="figure-value">{{ cell.text }}</span>{% if cell.label %}<span class="cell-basis">{{ cell.label }}</span>{% endif %}{% if cell.reason %}<span class="cell-reason">{{ cell.reason }}</span>{% endif %}{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="99">No rows due.</td></tr>{% endfor %}</tbody></table></div>
+</div>{% endfor %}
+{% else %}<div class="table-panel">
   <div class="table-toolbar"><div><h2>Report detail</h2><p>Figures in TWD unless another unit is shown.</p></div><label class="table-search-label" for="report-search"><span class="sr-only">Search report rows</span><input id="report-search" type="search" placeholder="Find a row…" autocomplete="off"></label></div>
   <div class="table-scroll" role="region" aria-label="{{ report.title }} table" tabindex="0"><table class="data-table"><thead><tr>{% for column in report.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody id="report-body">{% for cells in display_rows %}<tr>{% for cell in cells %}<td class="{% if cell.figure %}figure-cell basis-{{ cell.basis }}{% endif %}" data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{% if cell.figure %}<span class="figure-value">{{ cell.text }}</span>{% if cell.label %}<span class="cell-basis">{{ cell.label }}</span>{% endif %}{% if cell.reason %}<span class="cell-reason">{{ cell.reason }}</span>{% endif %}{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
   <p id="no-matches" class="table-no-matches" hidden>No rows match your search.</p>
 </div>
+{% endif %}
 {% if report.notes %}<section class="notes-panel" aria-labelledby="notes-heading"><div><p class="eyebrow">READ BEFORE USING</p><h2 id="notes-heading">Interpretation notes</h2></div><ul>{% for note in report.notes %}<li>{{ note }}</li>{% endfor %}</ul></section>{% endif %}
-<script>
+{% if not report.sections %}<script>
   (() => {
     const input = document.getElementById('report-search');
     const rows = Array.from(document.querySelectorAll('#report-body tr'));
@@ -30,4 +36,5 @@
     });
   })();
 </script>
+{% endif %}
 {% endblock %}

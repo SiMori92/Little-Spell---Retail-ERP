@@ -99,6 +99,13 @@ class Column:
 
 
 @dataclass
+class ReportSection:
+    title: str
+    columns: tuple[Column, ...]
+    rows: list[dict]
+
+
+@dataclass
 class Report:
     slug: str
     title: str
@@ -107,10 +114,14 @@ class Report:
     columns: tuple[Column, ...]
     rows: list[dict]
     notes: list[str] = field(default_factory=list)
+    sections: tuple[ReportSection, ...] = ()
+    query_key: str = "period"
 
     @property
     def cost_basis(self):
-        figures = [row[column.key] for row in self.rows for column in self.columns
+        tables = [(self.columns, self.rows)] + [(section.columns, section.rows)
+                                                for section in self.sections]
+        figures = [row[column.key] for columns, rows in tables for row in rows for column in columns
                    if column.figure and isinstance(row.get(column.key), Figure)]
         if any(fig.cost_basis == "absent" for fig in figures) or not figures:
             return "absent"

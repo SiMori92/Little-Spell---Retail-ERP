@@ -75,6 +75,71 @@ class ProductComplianceChange(Provenance):
     evidence_ref = models.CharField(max_length=255)
 
 
+IG_STATUSES = ("enquiry", "quoted", "paid", "shipped", "followed_up", "lost")
+
+
+class IgDeal(Provenance):
+    deal_id = models.CharField(max_length=13)
+    line_no = models.PositiveIntegerField()
+    customer_ref = models.CharField(max_length=32)
+    status = models.CharField(max_length=16, choices=[(value, value) for value in IG_STATUSES])
+    enquiry_at = models.DateField()
+    quoted_at = models.DateField(null=True, blank=True)
+    quote_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    follow_up_on = models.DateField(null=True, blank=True)
+    lost_reason = models.CharField(max_length=24, blank=True, default="")
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.PROTECT)
+    qty_packs = models.PositiveIntegerField(null=True, blank=True)
+    unit_price_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    shipping_charged_twd = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    ship_country = models.CharField(max_length=2, blank=True, default="")
+    paid_at = models.DateField(null=True, blank=True)
+    wallet_txn_id = models.CharField(max_length=100, blank=True, default="")
+    ship_date = models.DateField(null=True, blank=True)
+    consent_marketing = models.CharField(max_length=3, blank=True, default="")
+    journey_sent = models.CharField(max_length=4, default="none")
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "deal_id", "line_no"],
+                                    name="ops_ig_deal_dataset_line"),
+            models.CheckConstraint(condition=Q(line_no__gte=1), name="ops_ig_deal_line_positive"),
+            models.CheckConstraint(condition=Q(quote_twd__isnull=True) | Q(quote_twd__gt=0),
+                                   name="ops_ig_deal_quote_positive"),
+            models.CheckConstraint(condition=Q(qty_packs__isnull=True) | Q(qty_packs__gt=0),
+                                   name="ops_ig_deal_qty_positive"),
+            models.CheckConstraint(condition=Q(unit_price_twd__isnull=True) | Q(unit_price_twd__gt=0),
+                                   name="ops_ig_deal_price_positive"),
+            models.CheckConstraint(condition=Q(shipping_charged_twd__isnull=True) |
+                                   Q(shipping_charged_twd__gte=0), name="ops_ig_deal_shipping_nonnegative"),
+            models.CheckConstraint(condition=Q(consent_marketing__in=["", "yes", "no"]),
+                                   name="ops_ig_deal_consent_allowed"),
+            models.CheckConstraint(condition=Q(journey_sent__in=["none", "d0", "d10", "d30"]),
+                                   name="ops_ig_deal_journey_allowed"),
+        ]
+
+
+class IgDealStatus(Provenance):
+    deal_id = models.CharField(max_length=13)
+    status = models.CharField(max_length=16, choices=[(value, value) for value in IG_STATUSES])
+    effective_on = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "deal_id", "status"],
+                                    name="ops_ig_status_once"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise RuntimeError("Instagram deal status history is append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Instagram deal status history is append-only")
+
+
 class Channel(models.Model):
     code = models.CharField(max_length=32, unique=True)
     name = models.CharField(max_length=100)

@@ -1,0 +1,14 @@
+deal_id,line_no,customer_ref,status,enquiry_at,quoted_at,quote_twd,follow_up_on,lost_reason,sku,qty_packs,unit_price_twd,shipping_charged_twd,ship_country,paid_at,wallet_txn_id,ship_date,consent_marketing,journey_sent,evidence_ref
+IG-202610-001,1,C-0001,enquiry,2026-10-01,,,2026-10-05,,,,,,,,,,yes,none,instagram/deals/evidence-a
+IG-202610-002,1,C-0002,quoted,2026-10-02,2026-10-03,500.0000,2026-10-10,,,,,,,,,,no,none,instagram/deals/evidence-b
+IG-202610-003,1,C-0003,paid,2026-10-03,2026-10-04,600.0000,,,TS-FL-001-S,2,300.0000,0.0000,TW,2026-10-05,880003,,yes,none,instagram/deals/evidence-c
+IG-202610-004,1,C-0004,shipped,2026-10-04,2026-10-05,350.0000,,,TS-GM-002-S,1,350.0000,50.0000,US,2026-10-06,880004,2026-10-20,yes,d0,instagram/deals/evidence-d
+IG-202610-005,1,C-0005,followed_up,2026-10-05,2026-10-06,400.0000,,,TS-SL-003-L,1,400.0000,0.0000,HK,2026-10-07,880005,2026-10-01,yes,d10,instagram/deals/evidence-e
+IG-202610-006,1,C-0006,shipped,2026-10-06,2026-10-07,700.0000,,,TS-FL-001-S,1,300.0000,50.0000,GB,2026-10-08,880006,2026-10-25,,none,instagram/deals/evidence-f
+IG-202610-006,2,C-0006,shipped,2026-10-06,2026-10-07,700.0000,,,TS-GM-002-S,1,350.0000,50.0000,GB,2026-10-08,880006,2026-10-25,,none,instagram/deals/evidence-f
+IG-202610-007,1,C-0007,lost,2026-10-07,2026-10-08,450.0000,,no_reply,,,,,,,,,no,none,instagram/deals/evidence-g
+IG-202610-008,1,C-0008,lost,2026-10-08,2026-10-09,450.0000,,price,,,,,,,,,,none,instagram/deals/evidence-h
+IG-202610-009,1,C-0003,paid,2026-10-09,2026-10-10,300.0000,,,TS-FL-001-S,1,300.0000,0.0000,TW,2026-10-11,880009,,yes,none,instagram/deals/evidence-i
+IG-202610-010,1,C-0004,shipped,2026-10-10,2026-10-11,350.0000,,,TS-GM-002-S,1,350.0000,0.0000,US,2026-10-12,880010,2026-11-10,no,none,instagram/deals/evidence-j
+IG-202610-011,1,C-0009,enquiry,2026-10-11,,,2026-12-01,,,,,,,,,,,none,instagram/deals/evidence-k
+IG-202610-012,1,C-0010,quoted,2026-10-12,2026-10-13,550.0000,2026-10-15,,,,,,,,,,,none,instagram/deals/evidence-l
