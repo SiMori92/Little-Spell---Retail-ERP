@@ -54,7 +54,8 @@ def path_violations(path: str) -> list[str]:
         found.append("sensitive-path")
     if lower.endswith((".csv", ".xlsx", ".xls")):
         fixture = lower.startswith("tests/fixtures/") and filename.endswith("_fixture.csv")
-        if not fixture:
+        documented_sample = lower.startswith("docs/samples/") and filename.startswith("sample_")
+        if not fixture and not documented_sample:
             found.append("tabular-file")
     if "__pycache__/" in lower or lower.endswith(".pyc"):
         found.append("python-cache")

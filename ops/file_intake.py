@@ -1,4 +1,4 @@
-"""Evidenced receipt and physical-count CSV intake; dry-run is the default."""
+"""Manifest-driven operational CSV intakes; dry-run is the default."""
 
 import hashlib
 import json
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -17,12 +18,23 @@ from acct.posting import PostingError, plan
 from core.models import DatasetSettings
 from ops.etsy_import import emit_event
 from ops.intake import ImportRefused, IntakeManifest, prepare_source
-from ops.models import InventoryMove, LedgerEvent, Product, Receipt, StockCount, StockCountLine
+from ops.models import (InventoryMove, LedgerEvent, Product, ProductComplianceChange,
+                        Receipt, StockCount, StockCountLine, Supplier, SupplierChange)
+from ops.pii import refuse_pii
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 RECEIPT_CATEGORIES = {"advertising", "rent", "software", "professional", "utilities",
                       "wages", "bank_fee", "other"}
 CONDITIONS = {"sellable", "damaged_unsellable"}
+INCOTERMS = {"EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"}
+TAX_ID_STATES = {"yes", "no", "unknown"}
+COUNTRY_CODES = set(
+    "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW".split()
+)
+CURRENCY_CODES = set(
+    "AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BOV BRL BSD BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HRK HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SLL SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAF XAG XAU XBA XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG".split()
+)
+SKU_PATTERN = re.compile(r"TS-[A-Z]{2}-\d{3}-[SMLP]\Z")
 TZ = ZoneInfo("Asia/Taipei")
 
 
@@ -31,10 +43,14 @@ class IntakeResult:
     parsed_rows: int = 0
     inserted_rows: int = 0
     inserted_events: int = 0
+    would_write_rows: int = 0
 
 
 def load_schema(kind: str) -> dict:
-    return json.loads((SCHEMAS / f"{kind}_header_v1.json").read_text())
+    fixture = json.loads((SCHEMAS / f"{kind}_header_v1.json").read_text())
+    if fixture.get("source") not in {"authored", "observed"}:
+        raise ImportRefused(f"{kind} schema fixture must declare source as authored or observed")
+    return fixture
 
 
 def _digest(value: str) -> str:
@@ -67,29 +83,252 @@ def _adjustment_payload(sku, delta, evidence, value):
             "source_value_twd": str(value)}
 
 
+MANIFESTS: dict[str, Callable[[], IntakeManifest]] = {}
+
+
+def register_manifest(kind: str, builder: Callable[[], IntakeManifest]) -> None:
+    """Register an intake source without changing manifest dispatch code."""
+    if kind in MANIFESTS:
+        raise RuntimeError(f"Duplicate intake manifest registration: {kind}")
+    MANIFESTS[kind] = builder
+
+
 def manifest(kind: str) -> IntakeManifest:
-    if kind not in {"receipts", "counts"}:
-        raise ImportRefused(f"Unknown intake kind {kind}")
-    fixture = load_schema(kind)
+    try:
+        return MANIFESTS[kind]()
+    except KeyError as exc:
+        raise ImportRefused(f"Unknown intake kind {kind}") from exc
+
+
+def _receipt_manifest() -> IntakeManifest:
+    fixture = load_schema("receipts")
     return IntakeManifest(
-        kind=kind, header=tuple(fixture["header"]),
+        kind="receipts", header=tuple(fixture["header"]),
         optional_columns=tuple(fixture.get("optional_columns", [])), verified=fixture["verified"],
-        actual_filename=re.compile(r"receipts_\d{4}-(?:0[1-9]|1[0-2])\.csv\Z" if kind == "receipts"
-                                   else r"count_\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
-        target_models=("Receipt",) if kind == "receipts" else
-                      ("StockCount", "StockCountLine", "InventoryMove"),
-        events=("cost.recorded",) if kind == "receipts" else
-               ("inventory.opening_counted", "inventory.adjusted"),
-        natural_key="dataset + evidence_ref" if kind == "receipts" else
-                    "dataset + count evidence_ref, then SKU",
+        actual_filename=re.compile(r"receipts_\d{4}-(?:0[1-9]|1[0-2])\.csv\Z"),
+        target_models=("Receipt",), events=("cost.recorded",),
+        natural_key="dataset + evidence_ref",
         key_from=lambda row: _digest(row["evidence_ref"]),
-        payload_builders={"cost.recorded": lambda row: _receipt_payload(row)} if kind == "receipts" else {
+        payload_builders={"cost.recorded": lambda row: _receipt_payload(row)},
+    )
+
+
+def _count_manifest() -> IntakeManifest:
+    fixture = load_schema("counts")
+    return IntakeManifest(
+        kind="counts", header=tuple(fixture["header"]),
+        optional_columns=tuple(fixture.get("optional_columns", [])), verified=fixture["verified"],
+        actual_filename=re.compile(r"count_\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
+        target_models=("StockCount", "StockCountLine", "InventoryMove"),
+        events=("inventory.opening_counted", "inventory.adjusted"),
+        natural_key="dataset + count evidence_ref, then SKU",
+        key_from=lambda row: _digest(row["evidence_ref"]),
+        payload_builders={
             "inventory.opening_counted": lambda counted_at, evidence, lines, total:
                 _opening_payload(counted_at, evidence, lines, total),
             "inventory.adjusted": lambda sku, delta, evidence, value:
                 _adjustment_payload(sku, delta, evidence, value),
         },
     )
+
+
+def _reference_manifest(kind: str, target_models: tuple[str, ...]) -> IntakeManifest:
+    fixture = load_schema(kind)
+    if fixture["source"] != "authored":
+        raise ImportRefused(f"{kind} schema fixture must have source authored")
+    return IntakeManifest(
+        kind=kind, header=tuple(fixture["header"]), optional_columns=(),
+        verified=fixture["verified"],
+        actual_filename=re.compile(rf"{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
+        target_models=target_models, events=(), natural_key=f"dataset + {kind} natural key",
+        sample_filename=re.compile(rf"SAMPLE_{kind}_\d{{4}}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\.csv\Z"),
+    )
+
+
+register_manifest("receipts", _receipt_manifest)
+register_manifest("counts", _count_manifest)
+register_manifest("suppliers", lambda: _reference_manifest(
+    "suppliers", ("Supplier", "SupplierChange")))
+register_manifest("products", lambda: _reference_manifest(
+    "products", ("Product", "ProductComplianceChange")))
+
+
+def _required(row: dict, field: str) -> str:
+    value = row[field].strip()
+    if not value:
+        raise ImportRefused(f"{field} is required")
+    return value
+
+
+def _supplier_row(row: dict, columns) -> dict:
+    refuse_pii(row, columns)
+    supplier_ref = _required(row, "supplier_ref")
+    if not re.fullmatch(r"SUP-\d{3}", supplier_ref):
+        raise ImportRefused("supplier_ref must match ^SUP-\\d{3}$")
+    country = _required(row, "country")
+    if country not in COUNTRY_CODES:
+        raise ImportRefused("country must be an ISO 3166-1 alpha-2 code")
+    currency = _required(row, "currency")
+    if currency not in CURRENCY_CODES:
+        raise ImportRefused("currency must be an ISO 4217 code in three uppercase letters")
+    incoterm = _required(row, "default_incoterm")
+    if incoterm not in INCOTERMS:
+        raise ImportRefused("default_incoterm is not an allowed Incoterm")
+    tax_state = _required(row, "can_invoice_to_tax_id")
+    if tax_state not in TAX_ID_STATES:
+        raise ImportRefused("can_invoice_to_tax_id must be yes, no or unknown")
+    declaration = row["declaration_ref"].strip()
+    if declaration and not declaration.startswith("compliance/suppliers/"):
+        raise ImportRefused("declaration_ref must be blank or start with compliance/suppliers/")
+    return {
+        "supplier_ref": supplier_ref,
+        "legal_name": _required(row, "legal_name"),
+        "country": country,
+        "currency": currency,
+        "default_incoterm": incoterm,
+        "payment_terms": _required(row, "payment_terms"),
+        "can_invoice_to_tax_id": tax_state,
+        "declaration_ref": declaration,
+        "evidence_ref": _required(row, "evidence_ref"),
+    }
+
+
+@transaction.atomic
+def import_suppliers(path, *, commit: bool = False) -> IntakeResult:
+    path = Path(path)
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
+    source = manifest("suppliers")
+    rows = prepare_source(path, settings.dataset_kind, source, commit=commit)
+    parsed = [_supplier_row(row, source.header) for row in rows]
+    refs = [row["supplier_ref"] for row in parsed]
+    if len(refs) != len(set(refs)):
+        raise ImportRefused("supplier_ref repeats in one file")
+    existing = {item.supplier_ref: item for item in Supplier.objects.select_for_update().filter(
+        dataset_kind=settings.dataset_kind)}
+    missing = sorted(set(existing) - set(refs))
+    if missing:
+        raise ImportRefused(f"a missing supplier is not a deletion: {', '.join(missing)}")
+    mutable = {"declaration_ref", "can_invoice_to_tax_id", "payment_terms"}
+    ignored = {"supplier_ref", "evidence_ref"}
+    changes = []
+    for row in parsed:
+        prior = existing.get(row["supplier_ref"])
+        if not prior:
+            continue
+        for field, value in row.items():
+            if field in ignored or getattr(prior, field) == value:
+                continue
+            if field not in mutable:
+                raise ImportRefused(f"supplier field {field} cannot change")
+            changes.append((prior, field, getattr(prior, field), value, row["evidence_ref"]))
+    result = IntakeResult(parsed_rows=len(parsed))
+    result.would_write_rows = len([row for row in parsed if row["supplier_ref"] not in existing]) + len(changes)
+    if not commit:
+        return result
+    for row in parsed:
+        if row["supplier_ref"] in existing:
+            continue
+        Supplier.objects.create(**row, source_filename=path.name,
+                                dataset_kind=settings.dataset_kind)
+        result.inserted_rows += 1
+    changed_suppliers = set()
+    for prior, field, old, new, evidence in changes:
+        SupplierChange.objects.create(
+            supplier_ref=prior.supplier_ref, field=field, old=old, new=new,
+            source_filename=path.name, dataset_kind=settings.dataset_kind,
+            evidence_ref=evidence,
+        )
+        setattr(prior, field, new)
+        prior.evidence_ref = evidence
+        prior.source_filename = path.name
+        changed_suppliers.add(prior)
+        result.inserted_rows += 1
+    for prior in changed_suppliers:
+        prior.save(update_fields=["declaration_ref", "can_invoice_to_tax_id", "payment_terms",
+                                  "evidence_ref", "source_filename"])
+    return result
+
+
+def _product_row(row: dict, columns) -> dict:
+    refuse_pii(row, columns)
+    sku = _required(row, "sku")
+    if not SKU_PATTERN.fullmatch(sku):
+        raise ImportRefused(f"sku does not match the product mapping pattern: {sku}")
+    raw_qty = _required(row, "pack_qty")
+    if not raw_qty.isdigit() or int(raw_qty) <= 0:
+        raise ImportRefused(f"product {sku} pack_qty must be a positive whole number")
+    ingredient = _required(row, "ingredient_ref")
+    if ingredient != "UNKNOWN" and not ingredient.startswith("compliance/suppliers/"):
+        raise ImportRefused("ingredient_ref must be UNKNOWN or start with compliance/suppliers/")
+    return {
+        "sku": sku,
+        "name": _required(row, "name"),
+        "pack_qty": int(raw_qty),
+        "supplier_ref": row["supplier_ref"].strip(),
+        "ingredient_ref": ingredient,
+        "evidence_ref": _required(row, "evidence_ref"),
+    }
+
+
+@transaction.atomic
+def import_products(path, *, commit: bool = False) -> IntakeResult:
+    path = Path(path)
+    settings = DatasetSettings.objects.select_for_update().get(pk=1)
+    source = manifest("products")
+    rows = prepare_source(path, settings.dataset_kind, source, commit=commit)
+    parsed = [_product_row(row, source.header) for row in rows]
+    skus = [row["sku"] for row in parsed]
+    if len(skus) != len(set(skus)):
+        raise ImportRefused("duplicate sku in product file")
+    supplier_refs = {row["supplier_ref"] for row in parsed if row["supplier_ref"]}
+    suppliers = {item.supplier_ref: item for item in Supplier.objects.filter(
+        dataset_kind=settings.dataset_kind, supplier_ref__in=supplier_refs)}
+    unknown = sorted(supplier_refs - set(suppliers))
+    if unknown:
+        raise ImportRefused(f"unknown supplier_ref: {', '.join(unknown)}")
+    for row in parsed:
+        supplier = suppliers.get(row["supplier_ref"])
+        if row["ingredient_ref"] != "UNKNOWN" and (supplier is None or not supplier.declaration_ref):
+            raise ImportRefused(
+                f"product {row['sku']}: a product cannot be cleared by a supplier with no declaration on file"
+            )
+    existing = Product.objects.select_for_update().in_bulk(skus)
+    changes = []
+    for row in parsed:
+        prior = existing.get(row["sku"])
+        if not prior:
+            continue
+        comparisons = {
+            "name": row["name"], "pack_qty": row["pack_qty"],
+            "supplier": suppliers.get(row["supplier_ref"]),
+        }
+        for field, value in comparisons.items():
+            if getattr(prior, field) != value:
+                raise ImportRefused(f"product field {field} cannot change")
+        if prior.ingredient_ref != row["ingredient_ref"]:
+            changes.append((prior, row))
+    result = IntakeResult(parsed_rows=len(parsed))
+    result.would_write_rows = len([row for row in parsed if row["sku"] not in existing]) + len(changes)
+    if not commit:
+        return result
+    for row in parsed:
+        if row["sku"] in existing:
+            continue
+        Product.objects.create(
+            sku=row["sku"], name=row["name"], uom="PK", pack_qty=row["pack_qty"],
+            supplier=suppliers.get(row["supplier_ref"]), ingredient_ref=row["ingredient_ref"],
+        )
+        result.inserted_rows += 1
+    for prior, row in changes:
+        ProductComplianceChange.objects.create(
+            sku=prior.sku, field="ingredient_ref", old=prior.ingredient_ref,
+            new=row["ingredient_ref"], source_filename=path.name,
+            dataset_kind=settings.dataset_kind, evidence_ref=row["evidence_ref"],
+        )
+        prior.ingredient_ref = row["ingredient_ref"]
+        prior.save(update_fields=["ingredient_ref"])
+        result.inserted_rows += 1
+    return result
 
 
 def _date(raw: str, field: str) -> date:

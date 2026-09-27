@@ -55,6 +55,18 @@ class PreCommitHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "--verify", "HEAD").returncode, 0)
 
+    def test_documented_sample_csv_is_allowed(self):
+        self.stage("docs/samples/SAMPLE_suppliers_2026-09-27.csv", "supplier_ref,legal_name\n")
+        result = self.git("commit", "-m", "documented sample")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("rev-parse", "--verify", "HEAD").returncode, 0)
+
+    def test_non_sample_csv_in_docs_samples_is_rejected(self):
+        self.stage("docs/samples/suppliers_2026-09-27.csv", "supplier_ref,legal_name\n")
+        result = self.git("commit", "-m", "must fail")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tabular-file", result.stderr)
+
     def test_concept_named_migration_is_allowed(self):
         self.stage("acct/migrations/0002_settlements.py", "# schema migration\n")
         result = self.git("commit", "-m", "migration")

@@ -4,7 +4,8 @@ from django.contrib import admin
 
 from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, InventoryMove,
                         LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
-                        Receipt, Shipment, StockCount, StockCountLine)
+                        ProductComplianceChange, Receipt, Shipment, StockCount,
+                        StockCountLine, Supplier, SupplierChange)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -18,10 +19,63 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return False
 
 
+class DeclarationOnFileFilter(admin.SimpleListFilter):
+    title = "declaration on file"
+    parameter_name = "declaration_on_file"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.exclude(declaration_ref="")
+        if self.value() == "no":
+            return queryset.filter(declaration_ref="")
+        return queryset
+
+
+class IngredientUnknownFilter(admin.SimpleListFilter):
+    title = "ingredient_ref = UNKNOWN"
+    parameter_name = "ingredient_unknown"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(ingredient_ref="UNKNOWN")
+        if self.value() == "no":
+            return queryset.exclude(ingredient_ref="UNKNOWN")
+        return queryset
+
+
 @admin.register(Product)
 class ProductAdmin(ReadOnlyAdmin):
-    list_display = ("sku", "name", "uom", "pack_qty")
+    list_display = ("sku", "name", "uom", "pack_qty", "supplier", "ingredient_ref")
+    list_filter = (IngredientUnknownFilter,)
     search_fields = ("sku", "name")
+
+
+@admin.register(Supplier)
+class SupplierAdmin(ReadOnlyAdmin):
+    list_display = ("supplier_ref", "legal_name", "country", "currency",
+                    "can_invoice_to_tax_id", "declaration_ref", "dataset_kind")
+    list_filter = ("country", "can_invoice_to_tax_id", DeclarationOnFileFilter)
+    search_fields = ("supplier_ref", "legal_name")
+
+
+@admin.register(SupplierChange)
+class SupplierChangeAdmin(ReadOnlyAdmin):
+    list_display = ("supplier_ref", "field", "old", "new", "source_filename", "dataset_kind")
+    list_filter = ("field", "dataset_kind")
+    search_fields = ("supplier_ref", "source_filename", "evidence_ref")
+
+
+@admin.register(ProductComplianceChange)
+class ProductComplianceChangeAdmin(ReadOnlyAdmin):
+    list_display = ("sku", "field", "old", "new", "source_filename", "dataset_kind")
+    list_filter = ("field", "dataset_kind")
+    search_fields = ("sku", "source_filename", "evidence_ref")
 
 
 @admin.register(Channel)

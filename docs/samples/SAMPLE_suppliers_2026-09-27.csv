@@ -1,0 +1,2 @@
+supplier_ref,legal_name,country,currency,default_incoterm,payment_terms,can_invoice_to_tax_id,declaration_ref,evidence_ref
+SUP-001,Synthetic Sample Supplier,TW,TWD,EXW,Payment before production,unknown,,sample supplier master 2026-09-27

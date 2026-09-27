@@ -14,17 +14,53 @@ class Provenance(models.Model):
         abstract = True
 
 
+class Supplier(Provenance):
+    supplier_ref = models.CharField(max_length=7)
+    legal_name = models.CharField(max_length=255)
+    country = models.CharField(max_length=2)
+    currency = models.CharField(max_length=3)
+    default_incoterm = models.CharField(max_length=3)
+    payment_terms = models.CharField(max_length=255)
+    can_invoice_to_tax_id = models.CharField(max_length=7)
+    declaration_ref = models.CharField(max_length=255, blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["dataset_kind", "supplier_ref"],
+                                    name="ops_supplier_dataset_ref"),
+        ]
+
+
 class Product(models.Model):
     sku = models.CharField(max_length=20, primary_key=True)
     name = models.CharField(max_length=100)
     uom = models.CharField(max_length=2, default="PK")
     pack_qty = models.PositiveIntegerField(null=True, blank=True)
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT)
+    ingredient_ref = models.CharField(max_length=255, default="UNKNOWN")
 
     class Meta:
         constraints = [
             models.CheckConstraint(condition=Q(uom="PK"), name="ops_product_pack_uom"),
             models.CheckConstraint(condition=Q(pack_qty__isnull=True) | Q(pack_qty__gt=0), name="ops_product_positive_pack_qty"),
         ]
+
+
+class SupplierChange(Provenance):
+    supplier_ref = models.CharField(max_length=7)
+    field = models.CharField(max_length=32)
+    old = models.TextField(blank=True, default="")
+    new = models.TextField(blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
+
+
+class ProductComplianceChange(Provenance):
+    sku = models.CharField(max_length=20)
+    field = models.CharField(max_length=32)
+    old = models.TextField(blank=True, default="")
+    new = models.TextField(blank=True, default="")
+    evidence_ref = models.CharField(max_length=255)
 
 
 class Channel(models.Model):

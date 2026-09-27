@@ -23,6 +23,7 @@ class IntakeManifest:
     natural_key: str
     key_from: Callable[[dict], str] | None = None
     payload_builders: Mapping[str, Callable[..., dict]] = field(default_factory=dict)
+    sample_filename: re.Pattern[str] | None = None
 
     def payload_for(self, event_type: str, **context) -> dict:
         if event_type not in self.events or event_type not in self.payload_builders:
@@ -33,7 +34,8 @@ class IntakeManifest:
 def classify_filename(path: Path, dataset_kind: str, manifest: IntakeManifest) -> str:
     """Classify by name only. Never infer dataset provenance from CSV contents."""
     name = path.name
-    if name.startswith("SAMPLE_") and name.endswith(".csv") and len(name) > len("SAMPLE_.csv"):
+    if (manifest.sample_filename.fullmatch(name) if manifest.sample_filename else
+            name.startswith("SAMPLE_") and name.endswith(".csv") and len(name) > len("SAMPLE_.csv")):
         kind = "SAMPLE"
     elif manifest.actual_filename.fullmatch(name):
         kind = "ACTUAL"
