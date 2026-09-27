@@ -3,9 +3,10 @@
 Date: 2026-09-27 HKT
 Branch: `main`
 Gate base: `7efdf1b`
-Implementation commit: recorded after commit below
-PostgreSQL CI run: recorded after the first push below
-Real elapsed build time: 2.0 hours at initial report authoring
+Implementation commit: `46a7430`
+R-1.1 repair commit: `ed4a0cd`
+PostgreSQL 16 CI run: `36332352426` — PASS
+Real elapsed build time: 2.0 hours for R-1; 0.3 hours for R-1.1
 
 ## Result
 
@@ -162,7 +163,7 @@ by GitHub Actions after push; its run identifier and result are recorded above a
 - Corrected `test_actual_dataset_refuses_unconditionally` using transaction rollback isolation. The test
   performs the real SAMPLE→ACTUAL transition and real migration refusal inside an outer transaction, then
   rolls that state back; teardown therefore never attempts ACTUAL→SAMPLE and no trigger bypass exists.
-- Full PostgreSQL 16 result: pending GitHub Actions run after this repair is pushed.
-- Test count and pass line: pending GitHub Actions run after this repair is pushed.
+- Full PostgreSQL 16 result: PASS, GitHub Actions run `36332352426` against `ed4a0cd`.
+- Test count and pass line: `Ran 291 tests in 51.655s` followed by `OK`.
 
 The first R-1 report claimed green without a PostgreSQL run; that claim was unsupported and incorrect.
