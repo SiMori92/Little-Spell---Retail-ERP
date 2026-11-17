@@ -5,7 +5,7 @@ import { DomainError } from '../domain/errors';
 
 export const hostedEnvironmentSchema=z.object({
  ERP_ACCESS_USERNAME:z.string().min(1).max(80).regex(/^[a-zA-Z0-9_-]+$/).default('founder'),
- ERP_ACCESS_PASSWORD:z.string().min(24),
+ ERP_ACCESS_PASSWORD:z.string().min(10),
  ERP_PUBLIC_ORIGIN:z.url().refine(value=>{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;},'Configure the public HTTPS origin.'),
  ERP_DATA_DIR:z.string().startsWith('/'),
  RAILWAY_VOLUME_MOUNT_PATH:z.string().startsWith('/')

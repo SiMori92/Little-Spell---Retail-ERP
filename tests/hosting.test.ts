@@ -11,6 +11,8 @@ afterEach(()=>vi.unstubAllEnvs());
 test('hosted startup configuration requires private access, HTTPS and volume-contained data',()=>{
  const input={ERP_ACCESS_PASSWORD:password,ERP_PUBLIC_ORIGIN:'https://erp.example.invalid',ERP_DATA_DIR:'/data/erp',RAILWAY_VOLUME_MOUNT_PATH:'/data'};
  expect(hostedEnvironmentSchema.safeParse(input).success).toBe(true);
+ expect(hostedEnvironmentSchema.safeParse({...input,ERP_ACCESS_PASSWORD:'x'.repeat(10)}).success).toBe(true);
+ expect(hostedEnvironmentSchema.safeParse({...input,ERP_ACCESS_PASSWORD:'x'.repeat(9)}).success).toBe(false);
  for(const patch of [{ERP_ACCESS_PASSWORD:''},{ERP_PUBLIC_ORIGIN:'http://erp.example.invalid'},{ERP_DATA_DIR:'/tmp/records'},{ERP_DATA_DIR:'/data/../tmp'},{RAILWAY_VOLUME_MOUNT_PATH:'/'},{ERP_PUBLIC_ORIGIN:'https://erp.example.invalid/subpage'}])expect(hostedEnvironmentSchema.safeParse({...input,...patch}).success).toBe(false);
  expect(volumeIsMounted('84 52 0:42 / /data rw - ext4 /dev/volume rw','/data')).toBe(true);expect(volumeIsMounted('84 52 0:42 / /other rw - ext4 /dev/volume rw','/data')).toBe(false);
 });

@@ -17,7 +17,7 @@ Set these service variables:
 | `ERP_DEPLOYMENT` | `railway` |
 | `ERP_DATA_DIR` | `/data/erp` |
 | `ERP_ACCESS_USERNAME` | `founder` or an explicit simple username |
-| `ERP_ACCESS_PASSWORD` | A unique generated secret of at least 24 characters |
+| `ERP_ACCESS_PASSWORD` | A unique password of at least 10 characters |
 | `ERP_PUBLIC_ORIGIN` | The exact public HTTPS origin, without a path; may be omitted when Railway provides `RAILWAY_PUBLIC_DOMAIN` |
 
 Railway supplies `PORT`, its volume mount metadata, and the generated public domain. Never commit access secrets. Retrieve the workspace password through the private Railway Variables interface. Requests to pages and API endpoints require HTTP Basic access over HTTPS; writes also require the configured same origin. The health endpoint exposes no record data. Local development stays bound to loopback and retains its original local-request checks.
