@@ -22,7 +22,7 @@ Set these service variables:
 
 Railway supplies `PORT`, its volume mount metadata, and the generated public domain. Never commit access secrets. Retrieve the workspace password through the private Railway Variables interface. Requests to pages and API endpoints require HTTP Basic access over HTTPS; writes also require the configured same origin. The health endpoint exposes no record data. Local development stays bound to loopback and retains its original local-request checks.
 
-The hosted proxy also disables indexing/caching and framing. The JSON store's atomic writes, locks, tamper checks and immutable run history remain in force. Railway-volume snapshots and verified application backups are separate responsibilities; a persistent volume is not itself a backup.
+The hosted proxy also disables indexing/caching and framing. The JSON store's atomic writes, locks, tamper checks and immutable run history remain in force. Hosted `pnpm backup` stores its checksummed zip under `/data/erp-backups`, outside the records directory but on the persistent volume; local backups retain `../erp-backups`. Copy backups off the service as well. Railway-volume snapshots and verified application backups are separate responsibilities; a persistent volume is not itself a backup.
 
 ## Rollback and verification
 

@@ -9,6 +9,7 @@ import writeFileAtomic from 'write-file-atomic';
 import { RunStore } from './store';
 import { assertNotSymlink } from './files';
 import { DomainError } from '../domain/errors';
+import { hostedEnvironment,isHosted } from './hosting';
 
 const exec = promisify(execFile);
 const sha = (body: Buffer) => createHash('sha256').update(body).digest('hex');
@@ -28,7 +29,7 @@ async function filesUnder(directory: string, root = directory): Promise<string[]
   return files.sort();
 }
 
-export async function backup(store: RunStore, destination = resolve('../erp-backups')): Promise<string> {
+export async function backup(store: RunStore, destination = isHosted()?join(hostedEnvironment().RAILWAY_VOLUME_MOUNT_PATH,'erp-backups'):resolve('../erp-backups')): Promise<string> {
   return store.locked(async () => {
     await store.readVerified();
     const stagingRoot = resolve('backups');
