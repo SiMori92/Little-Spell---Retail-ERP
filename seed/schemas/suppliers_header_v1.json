@@ -1,0 +1,9 @@
+{
+  "kind": "suppliers",
+  "source": "authored",
+  "verified": true,
+  "header": ["supplier_ref", "legal_name", "country", "currency", "default_incoterm", "payment_terms", "can_invoice_to_tax_id", "declaration_ref", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_suppliers_2026-09-27.csv",
+  "actual_filename_pattern": "suppliers_YYYY-MM-DD.csv"
+}

@@ -1,0 +1,3 @@
+po_number,receipt_no,received_on,line_no,sku,qty_pieces_good,qty_pieces_damaged,damaged_credited,short_close,short_close_reason,evidence_ref
+PO-2026-003,R1,2026-01-29,1,PKG-MAIL-LS,15000,0,no,no,,SAMPLE synthetic delivery note PO-2026-003 R1 line 1; not a real delivery
+PO-2026-003,R1,2026-01-29,2,PKG-CARD-LS,19800,200,no,no,,SAMPLE synthetic delivery note PO-2026-003 R1 line 2; 200 cards damaged in transit and not credited

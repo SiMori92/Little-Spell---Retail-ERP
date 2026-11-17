@@ -1,0 +1,24 @@
+# M5 — Close, guidance and dashboard checkpoint
+
+Date: 2026-11-17, Asia/Hong_Kong. Authorized with M4 and the smoke test.
+
+## Delivered
+
+- `/close` computes five diagnostic checks from source facts and posted journals. G-1 checks both unscoped dataset event streams; G-2 uses signed FIFO clearing items, Monday–Friday aging, named causes, platform-tax balance and supplier deposits; G-3 checks sourced opening/moves against independent SKU journal quantities/value; G-4 checks complete order contribution against the period ledger and independent gross-share SKU allocation; G-5 checks prohibited accounts, unreferenced corrections and unsupported estimates. Missing sources produce NOT_RUNNABLE, never PASS.
+- Pre-posting review is recorded once at WD+1 before any month journal. Close is due WD+3, needs recorded founder authorization, and recomputes against the current history head. Future-dated attempts refuse. Actual execution stops at its first failure; later checks are recorded as not run. The page's read-only diagnostics may still show all five checks.
+- A blocked close saves an immutable attempt and leaves the month OPEN. A successful computed attempt emits the period lock in the same run. Effective fact/journal dates, including imported receipts and FX dates, cannot enter a closed month. There is no manual “make green” control.
+- Today is a computed task queue: setup/counts, orders to dispatch, due IG follow-ups, supplier deliveries due, unmatched documents, unposted facts, missing selected-month statements, header review and close progress. Backup age remains visible and amber when stale.
+- Reports and Today share server-aggregated KPI projections. Six chart panels show weekly activity/revenue, contribution vs NT$200, SKU contribution, stock/reorder policies, IG stages and cash flow. Monetary inputs are decimal strings aggregated on the server. Missing revenue/cost/threshold evidence remains missing. Contribution is labeled MODELLED for SAMPLE/provisional values; no bare inferred actual contribution is shown.
+- Explicit per-SKU reorder-policy entries append their evidence; Stock links to the form. Shared report tables provide search, filters, sorting, record drawers and current-view CSV with dataset/month labels. Eighteen report screens include the purchasing and Instagram families; journey rows are exports only, with no notification sender.
+- The global period picker controls reports/close/Today. Quick New actions open the corresponding guided flow. Narrow-layout QA fixed the gate/KPI/task overflow; old pending-feature fallbacks were removed.
+- `/setup/dataset` provides the seed-retirement → evidenced real non-stock opening → one-way ACTUAL transition. A normal manifest-only seed can be retired without inventing a financial seed amount. The transition requires the seed reversal and a separately posted founder-approved real opening. SAMPLE masters and pipeline records remain quarantined; real masters and a complete real stock count are separate setup actions. No source rows are relabeled ACTUAL.
+
+## Verification and remaining gates
+
+119 unit/API/store tests, 22 browser tests, strict typecheck, lint/money guard and production build passed. Production smoke passed all recorded checks, including the blocked-close path, 18 reports, mobile widths, backup/restore and tamper read-only mode. Dataset activation is tested in isolated domain/store tests; it was not performed on the founder's workspace. A successful all-green financial close was **not** demonstrated because the provided settlement source is incomplete.
+
+G3 purchasing financial/inventory outputs independently tie to the frozen reference, with zero re-import runs. Full Etsy/all-fixture parity remains blocked by the three reference deposit mismatches and unresolved TWD settlement evidence documented in `PARITY_TIEOUT.md`. No real month has been closed and no passing GATE RB is claimed.
+
+Audited reopening and a separate HMAC signing key are not implemented; attempts instead inherit the immutable run hash chain. Complete report unit/section/export parity, operational corrections, packaging identity and all-source close certification remain explicit DEFERRED rows. The ACTUAL UI is available but is not a readiness certificate. D-W4 still prohibits modifying/deleting a booked record.
+
+All changes were authored under `erp/`. The frozen reference was executed only through a read-only-source harness with an in-memory validation adapter, bytecode writes disabled, no project `.env`, and no customer/inbox data. The harness omits PostgreSQL audit receivers and does not claim to test PostgreSQL triggers. No commits, branches, deployments, external backup writes or notifications were made. First-commit/fresh-clone gates and the full-root orchestrator mtime audit remain outstanding.

@@ -1,0 +1,30 @@
+import { afterEach, expect, test } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import { candidateSchema } from '../src/domain/schemas';
+import { planReversal } from '../src/domain/reversal';
+import { initializeWorkspace } from '../src/server/initialize';
+import { resetSample } from '../src/server/archive';
+import { RunStore } from '../src/server/store';
+import { workspace, journalCandidate } from './helpers';
+const cleanups:(()=>Promise<unknown>)[]=[];
+afterEach(async()=>{for(const cleanup of cleanups.splice(0))await cleanup();});
+test('full quarantine transition requires seed reversal and approved actual opening',async()=>{
+  const {store,cleanup}=await workspace();cleanups.push(cleanup);
+  const seed=journalCandidate({kind:'sample.seed',idempotencyKey:'sample-seed'});
+  seed.effects.push({type:'seed.registered',manifestHash:'a'.repeat(64),fixtureCount:1});
+  const effect=seed.effects[0];if(effect?.type!=='journal.posted')throw new Error('fixture');effect.opening='SAMPLE_SEED';
+  const original=await store.execute(()=>seed);
+  await store.execute(runs=>planReversal({originalRunId:original.run.runId,occurredOn:'2026-11-16',reason:'Synthetic seed reversed',idempotencyKey:'seed-reversed'},runs));
+  const actual=journalCandidate({dataset:'ACTUAL',idempotencyKey:'actual-opening'});const opening=actual.effects[0];if(opening?.type!=='journal.posted')throw new Error('fixture');opening.opening='REAL_OPENING';opening.founderAuthorization='synthetic-opening-approval';opening.entry.entryId=randomUUID();
+  await store.execute(()=>actual);
+  await store.execute(()=>candidateSchema.parse({kind:'dataset.activate',dataset:'SAMPLE',occurredOn:'2026-11-16',input:{},idempotencyKey:'activate-actual',effects:[{type:'dataset.activated'}]}));
+  expect((await store.status()).dataset).toBe('ACTUAL');await expect(store.execute(()=>journalCandidate())).rejects.toThrow(/different dataset/);await expect(resetSample(store)).rejects.toThrow(/Actual/);
+});
+test('startup registers bundled fixture manifest only once; reset archives instead of deleting sample history',async()=>{
+  const {store,cleanup}=await workspace();cleanups.push(cleanup);
+  await initializeWorkspace(store.directory);await initializeWorkspace(store.directory);expect((await store.read()).length).toBe(3);
+  const archived=await resetSample(store);cleanups.push(()=>rm(archived,{recursive:true,force:true}));
+  expect((await new RunStore(archived).read()).length).toBe(3);
+  await initializeWorkspace(store.directory);expect((await store.read()).length).toBe(3);
+});

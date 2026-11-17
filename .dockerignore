@@ -1,0 +1,15 @@
+.git
+.tools
+.next
+node_modules
+data
+data.lock
+data.sample-archive-*
+data.restore-*
+backups
+coverage
+test-results
+playwright-report
+.env*
+*.log
+*.tsbuildinfo

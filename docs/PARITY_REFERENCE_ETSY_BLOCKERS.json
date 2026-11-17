@@ -1,0 +1,24 @@
+{
+  "scope": "Frozen importer envelope replayed through unmodified reference placed()",
+  "blockers": [
+    {
+      "order": "2918473019",
+      "reference_error": "rail amount contradicts discount funder; refuse both readings",
+      "imported_minor": 3097,
+      "expected_minor": 2837
+    },
+    {
+      "order": "2918473035",
+      "reference_error": "rail amount contradicts discount funder; refuse both readings",
+      "imported_minor": 1749,
+      "expected_minor": 1569
+    },
+    {
+      "order": "2918473062",
+      "reference_error": "rail amount contradicts discount funder; refuse both readings",
+      "imported_minor": 4447,
+      "expected_minor": 3897
+    }
+  ],
+  "full_etsy_tieout": "BLOCKED"
+}

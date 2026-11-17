@@ -1,0 +1,9 @@
+{
+  "kind": "products",
+  "source": "authored",
+  "verified": true,
+  "header": ["sku", "name", "pieces_per_sale_unit", "supplier_ref", "ingredient_ref", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_products_2026-09-27.csv",
+  "actual_filename_pattern": "products_YYYY-MM-DD.csv"
+}

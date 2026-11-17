@@ -1,0 +1,3 @@
+po_number,supplier_ref,po_date,target_delivery_date,currency,payment_terms,incoterm,quote_ref,status,line_no,sku,qty_pieces,unit_price_twd,setup_charge_twd,line_total_twd,min_order_qty_pieces,artwork_ref,evidence_ref
+PO-2026-002,SUP-002,2026-01-12,2026-01-28,TWD,"30% Deposit, 70% Net 30",EXW,SAMPLE-G3-QUOTE,sent,1,TS-MT-005-S,3000,18.0000,4000.0000,58000.0000,1500,,SAMPLE synthetic PO-2026-002 line 1
+PO-2026-002,SUP-002,2026-01-12,2026-01-28,TWD,"30% Deposit, 70% Net 30",EXW,SAMPLE-G3-QUOTE,sent,2,TS-FS-004-P,7500,9.0000,3500.0000,71000.0000,2500,,SAMPLE synthetic PO-2026-002 line 2

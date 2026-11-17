@@ -1,0 +1,2 @@
+payment_ref,paid_on,supplier_ref,po_number,invoice_no,payment_kind,amount_twd,bank_account,bank_ref,evidence_ref
+BAL-A,2026-01-26,SUP-002,PO-2026-002,INV-A,balance,43500.0000,1121,SAMPLE-BANK-BAL-A,SAMPLE synthetic balance advice BAL-A

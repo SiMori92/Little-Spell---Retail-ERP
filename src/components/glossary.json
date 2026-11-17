@@ -1,0 +1,14 @@
+{
+  "Purchase order": "Your written agreement to buy specific pieces from a supplier.",
+  "Goods receipt": "A record of the good and damaged pieces that actually arrived.",
+  "Supplier invoice": "The supplier’s bill for the pieces and charges supplied.",
+  "統一發票": "Taiwan’s official tax invoice. Keep its number and original evidence.",
+  "Landed cost": "What stock cost to reach you, including the eligible inbound charges.",
+  "WAC": "Weighted average cost: total sellable stock value divided by its pieces.",
+  "COGS": "The stock cost used up when you dispatch an order.",
+  "Deferred revenue": "Money received before dispatch; it is not yet earned sales.",
+  "Accrual": "A cost already incurred whose bill has not arrived yet.",
+  "Reversal": "A new opposite entry. The original record remains unchanged.",
+  "Trial balance": "A list of account balances used to check the books.",
+  "Period close": "Locking a month after all five evidence checks pass."
+}

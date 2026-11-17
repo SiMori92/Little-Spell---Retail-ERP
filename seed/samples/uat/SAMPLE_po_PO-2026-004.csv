@@ -1,0 +1,2 @@
+po_number,supplier_ref,po_date,target_delivery_date,currency,payment_terms,incoterm,quote_ref,status,line_no,sku,qty_pieces,unit_price_twd,setup_charge_twd,line_total_twd,min_order_qty_pieces,artwork_ref,evidence_ref
+PO-2026-004,SUP-003,2026-02-02,2026-02-16,TWD,Net 15 Days,DDP,"SAMPLE-SYNTHETIC (packaging-only PO, not in workbook)",sent,1,PKG-CARD-LS,10000,1.8000,0.0000,18000.0000,10000,,SAMPLE synthetic packaging-only PO for G-1 I-4/I-5; not in the founder workbook

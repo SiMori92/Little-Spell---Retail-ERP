@@ -1,0 +1,2 @@
+invoice_no,gui_no,invoice_date,po_number,receipt_no,line_no,sku,qty_pieces_invoiced,unit_price_twd,setup_charge_twd,line_amount_twd,freight_twd,tax_twd,tax_creditable_twd,invoice_total_twd,deposit_applied_twd,evidence_ref
+INV-A,,2026-01-20,PO-2026-002,R1,1,TS-MT-005-S,3000,18.0000,4000.0000,58000.0000,0.0000,2900.0000,0.0000,60900.0000,17400.0000,SAMPLE synthetic supplier invoice INV-A

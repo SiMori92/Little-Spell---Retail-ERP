@@ -1,0 +1,6 @@
+Sale Date,Item Name,Buyer,Quantity,Price,Coupon Code,Coupon Details,Discount Amount,Shipping Discount,Order Shipping,Order Sales Tax,Item Total,Currency,Transaction ID,Listing ID,Date Paid,Date Shipped,Ship Name,Ship Address1,Ship Address2,Ship City,Ship State,Ship Zipcode,Ship Country,Order ID,Variations,Order Type,Listings Type,Payment Type,SKU
+12/28/25,,,2,12.99,WELCOME10,,2.60,0.00,4.99,0.00,23.38,USD,3849102847,1482019384,12/28/25,12/29/25,,,,,,,United States,2918473019,,Online,Physical,Etsy Payments,TS-FL-001-S
+12/28/25,,,1,24.99,,,0.00,0.00,6.50,0.00,24.99,USD,3849102850,1482019400,12/28/25,12/29/25,,,,,,,Japan,2918473022,,Online,Physical,Etsy Payments,TS-SL-003-L
+12/29/25,,,1,11.99,HOLIDAY15,,1.80,0.00,5.50,0.00,10.19,USD,3849102865,1482019390,12/29/25,12/30/25,,,,,,,France,2918473035,,Online,Physical,Etsy Payments,TS-HN-007-M
+12/30/25,,,1,16.99,,,0.00,0.00,5.50,0.00,16.99,USD,3849102880,1482019415,12/30/25,12/31/25,,,,,,,United Kingdom,2918473050,,Online,Physical,Etsy Payments,TS-FS-004-P
+12/30/25,,,3,12.99,FREESHIP,,0.00,5.50,0.00,0.00,38.97,USD,3849102892,1482019384,12/30/25,12/31/25,,,,,,,Australia,2918473062,,Online,Physical,Etsy Payments,TS-FL-001-S

@@ -1,0 +1,10 @@
+import { z } from 'zod';
+import { decimalSchema,datasetSchema } from './primitives';
+import { periodSchema } from './accounting';
+export const figureSchema=z.strictObject({amount:decimalSchema.nullable(),basis:z.enum(['actual','provisional','absent']),reason:z.string()});
+export type Figure=z.infer<typeof figureSchema>;
+export const reportRowSchema=z.record(z.string(),z.union([z.string(),figureSchema]));
+export const reportSchema=z.strictObject({slug:z.string(),title:z.string(),period:periodSchema,dataset:datasetSchema,rows:z.array(reportRowSchema),notes:z.array(z.string())});
+export type Report=z.infer<typeof reportSchema>;
+export const gateSchema=z.strictObject({gate:z.enum(['G-1','G-2','G-3','G-4','G-5']),status:z.enum(['PASS','FAIL','NOT_RUNNABLE']),reason:z.string(),details:z.json()});
+export type Gate=z.infer<typeof gateSchema>;

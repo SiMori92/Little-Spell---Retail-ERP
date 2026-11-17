@@ -1,0 +1,9 @@
+# M3 scope contract
+
+The existing PARITY inventory remains binding. M3 targets purchase orders/lines/status history; goods receipts; supplier invoices/payments; stock counts and dated inventory movements; exact landed-cost allocation and deposit application; operational on-hand/WAC projections; and corresponding forms, CSV contracts/import replacements, lists, exception visibility, and lifecycle guidance.
+
+Document confirmations append runs. A matching receipt/invoice pair books a balanced receipt journal atomically with sellable inventory. Payments book their explicit deposit/balance/refund/forfeit journal. Unmatched documents remain visible and do not invent stock, payable, or cost. Opening/adjustment counts have explicit evidence and confirmation. Draft PO revisions append versions; sent commitments freeze quantities/prices/supplier/quote and cannot omit lines. No update/delete route is added.
+
+Preserve the reference's one delivery and invoice per PO line, evidenced short-close, compliance gate before sending, supplier-billed freight/non-creditable tax allocation by line value, highest-line rounding remainder, full landed damage split, GUI/tax-regime eligibility, exact pro-rata deposit remainder, bank account restrictions, and overpayment refusal. Carrier charges/duty and goods-in-transit remain explicitly unsupported as in the reference. Corrections remain future reversing entries, never replacements.
+
+M2 shipments are dated operational deductions. The stock projection values their consumption once and labels pending COGS separately; M4 must post that COGS without subtracting quantities again. No financial report tie-out or full accounting/close readiness is claimed by M3. Packaging receipt values stay separate from sellable WAC as in the reference; stock count packaging rows must be explicit zero pending a dedicated packaging-count ruling.

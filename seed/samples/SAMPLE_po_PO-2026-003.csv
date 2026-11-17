@@ -1,0 +1,3 @@
+po_number,supplier_ref,po_date,target_delivery_date,currency,payment_terms,incoterm,quote_ref,status,line_no,sku,qty_pieces,unit_price_twd,setup_charge_twd,line_total_twd,min_order_qty_pieces,artwork_ref,evidence_ref
+PO-2026-003,SUP-003,2026-01-15,2026-01-30,TWD,Net 15 Days,DDP,SAMPLE-PLACEHOLDER (workbook has no quote number),draft,1,PKG-MAIL-LS,15000,6.5000,2500.0000,100000.0000,10000,,founder PO workbook Little_Spell_PO_Master_Data.xlsx PO-2026-003 line 1
+PO-2026-003,SUP-003,2026-01-15,2026-01-30,TWD,Net 15 Days,DDP,SAMPLE-PLACEHOLDER (workbook has no quote number),draft,2,PKG-CARD-LS,20000,1.8000,1000.0000,37000.0000,10000,,founder PO workbook Little_Spell_PO_Master_Data.xlsx PO-2026-003 line 2

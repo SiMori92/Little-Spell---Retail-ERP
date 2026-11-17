@@ -1,0 +1,2 @@
+supplier_ref,legal_name,country,currency,default_incoterm,payment_terms,can_invoice_to_tax_id,declaration_ref,evidence_ref
+SUP-002,SAMPLE Synthetic Foil Supplier,TW,TWD,EXW,"30% Deposit, 70% Net 30",unknown,compliance/suppliers/SAMPLE_SUP-002_decl.pdf,SAMPLE synthetic supplier snapshot for Slice G-3

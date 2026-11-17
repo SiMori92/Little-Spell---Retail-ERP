@@ -1,0 +1,19 @@
+{
+  "kind": "statement",
+  "verified": false,
+  "header": [
+    "Date",
+    "Type",
+    "Title",
+    "Info",
+    "Currency",
+    "Amount",
+    "Fees & Taxes",
+    "Net",
+    "Tax Details"
+  ],
+  "sample_filename": "SAMPLE_etsy_statement_2025-12.csv",
+  "sample_sha256": "970f0cc05c80e709dafa15325a7c20733f0a21ed81fe36c0f4eb0a1e97ec07a8",
+  "contract_section_3_recorded_header_fingerprint": "f29820b8c1b824663586b0d30e564f467d05e233e2ca446f7e4502cf52d9403e",
+  "fingerprint_mismatch": true
+}

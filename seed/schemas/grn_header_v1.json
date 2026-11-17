@@ -1,0 +1,9 @@
+{
+  "kind": "grn",
+  "source": "authored",
+  "verified": true,
+  "header": ["po_number", "receipt_no", "received_on", "line_no", "sku", "qty_pieces_good", "qty_pieces_damaged", "damaged_credited", "short_close", "short_close_reason", "evidence_ref"],
+  "optional_columns": [],
+  "sample_filename": "SAMPLE_grn_PO-2026-003_R1.csv",
+  "actual_filename_pattern": "grn_PO-YYYY-NNN_<receipt_no>.csv"
+}
