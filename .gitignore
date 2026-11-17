@@ -1,0 +1,15 @@
+data/
+data.lock/
+.env*
+node_modules/
+.next/
+coverage/
+*.log
+backups/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.DS_Store
+.tools/
+data.sample-archive-*/
+data.restore-*/
