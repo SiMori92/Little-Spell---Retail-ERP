@@ -4,7 +4,7 @@ test('first visit shows quarantine, honest empty metrics, navigation, and setup 
   await expect(page.getByRole('heading',{name:'Your day, at a glance'})).toBeVisible();
   await page.getByRole('link',{name:'Open setup'}).click();await expect(page.getByRole('heading',{name:'Your setup checklist'})).toBeVisible();
   await expect(page.getByText('pnpm backup',{exact:false})).toBeVisible();
-  await page.getByRole('link',{name:'Close',exact:true}).click();await expect(page.getByText('NOT RUNNABLE',{exact:false})).toBeVisible();
+  await page.getByRole('link',{name:'Close',exact:true}).click();await expect(page.getByText('NOT RUNNABLE means required evidence is missing',{exact:false})).toBeVisible();await expect(page.getByRole('list',{name:'Month-end checks in order'}).getByText('NOT RUNNABLE',{exact:true}).first()).toBeVisible();
 });
 test('guided correction previews before confirmation and preserves original history',async({page,request})=>{
   await page.goto('/money');const before=await(await request.get('/api/system/status')).json();

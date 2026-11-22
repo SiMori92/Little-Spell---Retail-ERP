@@ -62,10 +62,9 @@ p { line-height:1.65; }
 .page-heading-action { margin-top:20px; }
 .page-heading.compact { display:block; min-height:0; }
 .page-heading.compact .page-heading-copy { padding:24px 28px; }
-.page-heading.compact .page-heading-art { display:none; }
 .page-heading.compact h1 { font-size:30px; }
 .page-heading-art { position:relative; min-height:216px; background-color:var(--primary-soft); background-size:cover; background-position:center 55%; }
-.page-heading-art a { position:absolute; inset:auto 10px 10px; width:fit-content; max-width:calc(100% - 20px); padding:6px 9px; font-size:11px; line-height:1.5; background:var(--surface); color:var(--ink); border-radius:5px; }
+.page-heading-art a { position:absolute; inset:auto 10px 10px; width:fit-content; max-width:calc(100% - 20px); padding:6px 9px; font-size:12px; line-height:1.5; background:var(--surface); color:var(--ink); border-radius:5px; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow); min-width:0; }
 .card .card { box-shadow:none; }
 .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; margin-bottom:24px; }
@@ -99,9 +98,6 @@ p { line-height:1.65; }
 .check-circle { height:20px; width:20px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:50%; flex-shrink:0; }
 .check-circle.done { color:var(--success); background:var(--success-soft); border:0; }
 .note { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px 16px; font-size:12px; overflow-wrap:anywhere; }
-.gate-lights { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:24px 0; }
-.gate { display:flex; align-items:center; gap:8px; border:1px solid var(--border); padding:9px 12px; border-radius:8px; font-size:12px; color:var(--muted); min-width:0; overflow-wrap:anywhere; }
-.light { width:10px; height:10px; border-radius:50%; background:var(--warn); flex-shrink:0; }
 .table-wrap { overflow-x:auto; max-width:100%; border:1px solid var(--border); border-radius:10px; }
 table { width:100%; border-collapse:collapse; white-space:nowrap; font-size:13px; font-variant-numeric:tabular-nums; }
 th,td { text-align:left; padding:14px 16px; border-bottom:1px solid var(--border); }
@@ -162,7 +158,8 @@ input[aria-invalid=true],select[aria-invalid=true] { border-color:var(--danger);
 .lifecycle-track { display:flex; gap:8px; overflow-x:auto; padding:20px 0; }
 .lifecycle-track span { flex-shrink:0; }
 .dashboard-charts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:24px; }
-.recharts-wrapper { max-width:100%; }
+/* ResponsiveContainer measures chart width. A max-width on its inner wrapper
+   would clamp it to Recharts' zero-width measurement shim and hide every plot. */
 .quick-actions { position:relative; }
 .quick-actions summary { list-style:none; cursor:pointer; }
 .quick-actions summary::-webkit-details-marker { display:none; }
@@ -175,13 +172,10 @@ pre,code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12
 pre { max-width:100%; padding:16px; background:var(--bg); border-radius:8px; overflow:auto; }
 summary { cursor:pointer; padding:10px 0; font-size:13px; }
 .content details { margin:12px 0; }
-.report-selector { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:24px 0; }
-.report-selector label { margin:0; }
-.report-selector select { flex:1; max-width:440px; }
 @media(min-width:1500px) { .content { padding-top:50px; } }
 @media(max-width:1150px) { .sidebar { width:206px; padding-inline:12px; } .content { padding:32px 25px; } .topbar { padding-inline:25px; } h1 { font-size:34px; } .page-heading-copy { padding:26px; } .painted-heading { grid-template-columns:minmax(0,1.6fr) minmax(180px,1fr); } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:1000px) { .grid-main { grid-template-columns:minmax(0,1fr); } .setup-checklist { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:900px) { .painted-heading { grid-template-columns:minmax(0,1fr); } .page-heading-art { min-height:110px; background-position:center 60%; } .dashboard-charts { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:900px) { .painted-heading { grid-template-columns:minmax(0,1fr); } .page-heading-art { min-height:100px; background-position:center 60%; } .page-heading-art a { font-size:11px; } .dashboard-charts { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:650px) {
   .sidebar,.sidebar.collapsed { width:60px; padding:24px 6px; } .sidebar .nav-label,.sidebar .brand-name,.sidebar-toggle,.nav-collapse,.sidebar-footer { display:none; }
   .brand { padding:0 2px 28px; } .brand-mark { padding:8px; } .nav-item { padding:12px; justify-content:center; }
@@ -235,3 +229,39 @@ summary { cursor:pointer; padding:10px 0; font-size:13px; }
 .procurement-fields > .flow-field,.document-line > .flow-field { grid-column:auto; }
 .flow-field input,.flow-field select { width:100%; }
 @media(max-width:900px) { .procurement-fields,.document-line { grid-template-columns:minmax(0,1fr); } }
+
+/* Phase 4 rollout: report library, close checklist, grouped money actions. */
+.report-library { margin:24px 0; }
+.report-dashboard-link { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; }
+.report-dashboard-link.active { color:var(--ink); }
+.report-search { margin:4px 0 20px; }
+.report-group + .report-group { margin-top:20px; padding-top:20px; border-top:1px solid var(--border); }
+.report-group .eyebrow { margin-bottom:4px; }
+.report-group-description { font-size:12px; margin:0 0 10px; }
+.report-links { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
+.report-links a { display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:42px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:13px; font-weight:600; color:var(--ink); }
+.report-links a:hover { border-color:var(--primary); color:var(--primary); text-decoration:none; }
+.report-links a.active { border-color:var(--primary); background:var(--primary-soft); color:var(--primary); }
+.report-view { margin-top:8px; }
+.report-close-link { margin:0 0 24px; }
+.close-checklist { margin-bottom:24px; }
+.close-count { color:var(--ink); font-variant-numeric:tabular-nums; }
+.close-blocker { border:1px solid var(--border); border-left:3px solid var(--danger); background:var(--danger-soft); border-radius:8px; padding:16px 18px; margin:8px 0 20px; }
+.close-blocker p { margin:0 0 8px; font-size:13px; overflow-wrap:anywhere; }
+.close-blocker p:last-child { margin-bottom:0; }
+.close-blocker-label { font-weight:700; color:var(--danger); }
+.gate-list { list-style:none; margin:0; padding:0; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.gate-row { display:grid; grid-template-columns:48px minmax(0,1fr) auto; align-items:start; gap:12px; padding:14px 16px; border-bottom:1px solid var(--border); }
+.gate-row:last-child { border-bottom:0; }
+.gate-code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--muted); padding-top:2px; }
+.gate-copy { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:13px; }
+.gate-copy .muted { font-size:12px; overflow-wrap:anywhere; }
+.gate-evidence summary { font-size:12px; color:var(--primary); cursor:pointer; }
+.gate-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:260px; overflow:auto; background:var(--bg); padding:10px; border-radius:6px; }
+.close-footnote { font-size:12px; margin:12px 0 0; }
+.action-groups { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:20px; }
+.action-groups ul { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.action-groups a { font-size:13px; font-weight:600; }
+.sell-gate { margin-bottom:20px; }
+@media(max-width:1150px) { .action-groups { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:650px) { .action-groups { grid-template-columns:minmax(0,1fr); } .gate-row { grid-template-columns:minmax(0,1fr) auto; } .gate-code { grid-column:1/-1; } }

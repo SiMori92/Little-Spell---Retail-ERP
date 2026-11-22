@@ -11,6 +11,7 @@ export function PageHeading({ eyebrow, title, description, action, compact = fal
       <p className="page-description">{description}</p>
       {action && <div className="heading-actions page-heading-action">{action}</div>}
     </div>
-    <ArtworkHeader />
+    {/* Compact working headers carry no art, so they never load a painting or advance the shuffle. */}
+    {!compact && <ArtworkHeader />}
   </header>;
 }

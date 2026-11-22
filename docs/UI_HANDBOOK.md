@@ -380,3 +380,68 @@ Primary hover styling currently uses `:hover:enabled`, which applies to enabled 
 The implemented scheme is light-only. There is no exported token package, Storybook catalog, theme switcher, timed gallery, live Google gallery API integration, or implemented multi-step benchmark wizard. Full browser visual regression coverage and a full accessibility audit are not established by the current build and unit checks.
 
 When the brand evolves, update this handbook with the corresponding token, component, asset and test changes in the same revision. Prefer consolidating existing overrides over adding another layer. Record intentional departures in each related app so a local exception does not silently become a new family-wide convention.
+
+## Little Spell ERP adoption — 22 November 2026
+
+The active implementation is the Next.js ERP. The archived Django application is
+not its deployment source. The ERP retains its installed Node 22, Next.js, React,
+Tailwind/global CSS, Radix dialogs, TanStack Table and Recharts stack.
+
+### Implemented patterns
+
+- `src/app/globals.css` maps the handbook colours to existing ERP variables.
+  `--primary` is an action colour; `--success` is a separate semantic colour.
+- `src/components/page-heading.tsx` provides one page title, description and action
+  area across Today, Sell, Buy, Stock, Money, Close, Reports and Setup. Dataset
+  transition and transaction flows use compact headers without mounting artwork.
+- `src/components/ui/workspace.tsx` provides shared status badges, metric cards,
+  flow progress and inline feedback. The four-step review sequence and all
+  server-side accounting checks remain in place.
+- `src/components/report-library.tsx` groups and searches all 18 report views.
+  Report links preserve the selected reporting month. Missing evidence and the
+  MODELLED/ACTUAL qualifications remain visible beside figures.
+- `src/components/close-checklist.tsx` displays each computed gate, its source
+  reason, evidence disclosure and the first unresolved check. It never replaces
+  a domain-computed result with a presentation-derived result.
+- Money exposes one primary expense action and groups supporting actions by task.
+  Stock distinguishes unavailable opening value from zero. Setup displays recorded
+  progress instead of milestone identifiers. Guides use native disclosures.
+- Shared tables retain internal scrolling and an explicit keyboard record action.
+  Purchasing drawers retain focus management, Escape closure and reachable actions.
+
+### Deliberate adaptations and review follow-up
+
+Working headers omit artwork entirely; entering a form does not download a hidden
+painting or consume a shuffle entry. Landing pages retain the curated local artwork
+and attribution in `public/art/README.md`. Decorative accents never imply a result.
+Essential supporting text and financial previews use at least 12px text.
+
+**Finance wording review remains outstanding:** review the plain-English G-1…G-5
+headings and recovery suggestions in `close-checklist.tsx`. These are explanatory
+copy, not new accounting policy. G-5 explicitly directs corrections through a new
+reviewed entry, preserving immutable history. The financial parity limitations in
+`PARITY_TIEOUT.md` remain separate from UI acceptance.
+
+Recharts' inner wrapper must not receive `max-width: 100%`: its parent measurement
+shim has zero width, so that rule collapses otherwise measured plots. Let
+`ResponsiveContainer` size the plots; keep their surrounding cards shrinkable.
+The rollout browser test checks real plot dimensions on desktop and mobile.
+
+### Verification and deployment boundary
+
+Use `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm smoke` and
+`pnpm e2e`. Browser tests use isolated synthetic workspaces. Review all workspace
+routes at 1440, 1150, 900, 650, 390 and 375px; the pilot tests additionally exercise
+breakpoint boundaries, artwork failures, blocked storage and keyboard navigation.
+
+Railway's existing GitHub integration deploys `main` automatically. This UI change
+has no modifications to domain logic, API handlers, storage code, `Dockerfile`,
+`railway.json` or CI configuration. Merging deploys the new interface against the
+existing mounted store; UI acceptance does not establish financial release readiness.
+
+Final local verification: typecheck, lint, 132 unit/API/store tests, production
+build, isolated production smoke, 38 Chromium end-to-end tests, and tracked/staged
+repository guards passed. Lint retains three existing warnings; the build retains
+four existing filesystem-tracing warnings. Desktop/mobile screenshot review of
+Close, Money, Reports, Sell and Stock produced no browser console errors. These
+checks do not constitute a full accessibility audit or financial-parity sign-off.
