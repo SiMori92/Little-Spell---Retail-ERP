@@ -3,7 +3,8 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 
-from acct.models import CloseRun, JournalEntry
+from acct.models import CloseRun, JournalEntry, Period
+from core.close_summary import summarize
 from core.models import DatasetSettings
 from ops.models import InventoryMove, LedgerEvent, Order
 
@@ -20,6 +21,11 @@ def home(request):
             "journal_entries": JournalEntry.objects.filter(dataset_kind=kind).count(),
             "latest_close": CloseRun.objects.filter(dataset_kind=kind).order_by("-id").first(),
         })
+        run = context["latest_close"]
+        context["close_summary"] = summarize(run)
+        # A CLOSED run stays CLOSED in history; the period lock says whether it was reopened since.
+        context["close_reopened"] = bool(run and run.status == "CLOSED" and
+                                         Period.objects.filter(pk=run.period, status="OPEN").exists())
     return render(request, "home.html", context)
 
 

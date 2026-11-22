@@ -1,10 +1,11 @@
 from django.contrib import admin
 
+from core.admin_ui import BadgeColumnsMixin
 from core.models import AuditLogEntry, DatasetSettings
 
 
 @admin.register(DatasetSettings)
-class DatasetSettingsAdmin(admin.ModelAdmin):
+class DatasetSettingsAdmin(BadgeColumnsMixin, admin.ModelAdmin):
     """Read-only in the admin, deliberately.
 
     `dataset_kind` is flipped by `manage.py flip_dataset_to_actual`, which refuses

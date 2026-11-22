@@ -1,0 +1,3 @@
+{% comment %}Status badge: the text label always carries the meaning; colour only reinforces it.
+Pass tone explicitly, or a status the mapping below knows.{% endcomment %}
+{% with t=tone|default:"" %}<span class="status-badge status-{% if t %}{{ t }}{% elif status == 'CLOSED' or status == 'PASS' or status == 'TIES' %}good{% elif status == 'BLOCKED' or status == 'FAIL' or status == 'FAILED' or status == 'MISMATCH' %}danger{% elif status == 'NOT_RUNNABLE' or status == 'PROVISIONAL' or status == 'VARIANCE' %}warn{% else %}neutral{% endif %}">{{ label|default:status }}</span>{% endwith %}

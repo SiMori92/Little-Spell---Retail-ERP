@@ -1,0 +1,5 @@
+{% extends "admin/change_form.html" %}
+{% block form_top %}
+{% if not has_change_permission and not add %}<div class="ls-notice ls-notice-info" role="note"><strong>Read-only record</strong><p>Records arrive through intake files and posting commands, and history is append-only. Corrections go through those commands, never this screen.</p></div>{% endif %}
+{{ block.super }}
+{% endblock %}

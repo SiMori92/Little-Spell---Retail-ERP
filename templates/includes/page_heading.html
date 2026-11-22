@@ -1,0 +1,4 @@
+<header class="page-heading{% if compact %} page-heading-compact{% endif %}">
+  <div class="page-heading-copy"><p class="eyebrow">{{ eyebrow }}</p><h1>{{ heading }}</h1><p class="page-intro">{{ description }}</p>{% if action_url %}<div class="page-heading-action"><a class="button button-primary" href="{{ action_url }}">{{ action_label }} <span aria-hidden="true">→</span></a></div>{% endif %}</div>
+  {% if not compact %}{% include "includes/artwork.html" %}{% endif %}{# compact working headers carry no art and must not advance the rotation #}
+</header>

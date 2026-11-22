@@ -1,0 +1,2 @@
+{% comment %}Empty state: says what is missing and what it does NOT prove. Never used for failures.{% endcomment %}
+<div class="empty-state"><p class="empty-title">{{ title }}</p>{% if body %}<p class="empty-body">{{ body }}</p>{% endif %}{% if action_url %}<a class="button button-secondary" href="{{ action_url }}">{{ action_label }}</a>{% endif %}</div>

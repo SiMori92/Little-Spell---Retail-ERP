@@ -2,39 +2,16 @@
 {% block title %}{{ report.title }} · Little Spell Ledger{% endblock %}
 {% block section_label %}Reports{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'report-index' %}"><span aria-hidden="true">←</span> All reports</a>
-<div class="page-heading report-heading"><div><p class="eyebrow">REPORT DETAIL</p><h1>{{ report.title }}</h1><p class="page-intro">Review the available evidence. Each figure retains its dataset, basis and source period.</p></div><a class="button button-primary" href="?{{ report.query_key }}={{ report.period }}&amp;format=csv">Download CSV <span aria-hidden="true">↓</span></a></div>
-<div class="report-meta" aria-label="Report provenance"><div><span>Source period</span><strong>{{ report.period }}</strong></div><div><span>Dataset</span><strong>{{ report.dataset_kind }}</strong></div><div><span>Overall cost basis</span><strong class="basis-text basis-{{ report.cost_basis }}">{{ report.cost_basis|upper }}</strong></div><div><span>Visible rows</span><strong id="row-count">{{ row_count }}</strong></div></div>
+<a class="back-link" href="{% url 'report-index' %}?period={{ report.period|slice:":7" }}"><span aria-hidden="true">←</span> All reports</a>
+{% with export_url="?"|add:report.query_key|add:"="|add:report.period|add:"&format=csv" %}
+{% include "includes/page_heading.html" with eyebrow="REPORT DETAIL" heading=report.title description="Review the available evidence. Each figure retains its dataset, basis and source period." action_url=export_url action_label="Download CSV" compact=True %}
+{% endwith %}
+<div class="report-meta" aria-label="Report provenance"><div><span>Source period</span><strong>{{ report.period }}</strong></div><div><span>Dataset</span><strong>{{ report.dataset_kind }}</strong></div><div><span>Overall cost basis</span><strong class="basis-text basis-{{ report.cost_basis }}">{{ report.cost_basis|upper }}</strong></div><div><span>Visible rows</span><strong id="row-count" role="status" aria-live="polite">{{ row_count }}</strong></div></div>
+{% if row_count %}<div class="table-filter" data-table-search hidden><label for="report-search">Find a row</label><input id="report-search" type="search" placeholder="Search by reference, SKU or reason…" autocomplete="off"><p id="no-matches" class="table-no-matches" role="status" hidden>No rows match your search. Clear the search to see all {{ row_count }} rows.</p></div>{% endif %}
 {% if report.sections %}
-{% for section in display_sections %}<div class="table-panel">
-  <div class="table-toolbar"><div><h2>{{ section.title }}</h2><p>Figures retain provenance and units.</p></div></div>
-  <div class="table-scroll" role="region" aria-label="{{ section.title }} table" tabindex="0"><table class="data-table"><thead><tr>{% for column in section.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody class="report-body">{% for cells in section.rows %}<tr>{% for cell in cells %}<td class="{% if cell.figure %}figure-cell basis-{{ cell.basis }}{% endif %}" data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{% if cell.figure %}<span class="figure-value">{{ cell.text }}</span>{% if cell.label %}<span class="cell-basis">{{ cell.label }}</span>{% endif %}{% if cell.reason %}<span class="cell-reason">{{ cell.reason }}</span>{% endif %}{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="99">No rows due.</td></tr>{% endfor %}</tbody></table></div>
-</div>{% endfor %}
-{% else %}<div class="table-panel">
-  <div class="table-toolbar"><div><h2>Report detail</h2><p>Figures in TWD unless another unit is shown.</p></div><label class="table-search-label" for="report-search"><span class="sr-only">Search report rows</span><input id="report-search" type="search" placeholder="Find a row…" autocomplete="off"></label></div>
-  <div class="table-scroll" role="region" aria-label="{{ report.title }} table" tabindex="0"><table class="data-table"><thead><tr>{% for column in report.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody id="report-body">{% for cells in display_rows %}<tr>{% for cell in cells %}<td class="{% if cell.figure %}figure-cell basis-{{ cell.basis }}{% endif %}" data-dataset-kind="{{ cell.kind }}" data-cost-basis="{{ cell.basis }}" data-source-period="{{ cell.period }}" data-unit="{{ cell.unit }}">{% if cell.figure %}<span class="figure-value">{{ cell.text }}</span>{% if cell.label %}<span class="cell-basis">{{ cell.label }}</span>{% endif %}{% if cell.reason %}<span class="cell-reason">{{ cell.reason }}</span>{% endif %}{% else %}{{ cell.text }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
-  <p id="no-matches" class="table-no-matches" hidden>No rows match your search.</p>
-</div>
+{% for section in display_sections %}{% include "includes/report_table.html" with title=section.title caption="Figures retain provenance and units." columns=section.columns rows=section.rows %}{% endfor %}
+{% else %}
+{% include "includes/report_table.html" with title="Report detail" caption="Figures in TWD unless another unit is shown." columns=report.columns rows=display_rows %}
 {% endif %}
 {% if report.notes %}<section class="notes-panel" aria-labelledby="notes-heading"><div><p class="eyebrow">READ BEFORE USING</p><h2 id="notes-heading">Interpretation notes</h2></div><ul>{% for note in report.notes %}<li>{{ note }}</li>{% endfor %}</ul></section>{% endif %}
-{% if not report.sections %}<script>
-  (() => {
-    const input = document.getElementById('report-search');
-    const rows = Array.from(document.querySelectorAll('#report-body tr'));
-    const counter = document.getElementById('row-count');
-    const empty = document.getElementById('no-matches');
-    input.addEventListener('input', () => {
-      const query = input.value.trim().toLocaleLowerCase();
-      let visible = 0;
-      rows.forEach((row) => {
-        const show = row.textContent.toLocaleLowerCase().includes(query);
-        row.hidden = !show;
-        if (show) visible += 1;
-      });
-      counter.textContent = String(visible);
-      empty.hidden = visible !== 0;
-    });
-  })();
-</script>
-{% endif %}
 {% endblock %}

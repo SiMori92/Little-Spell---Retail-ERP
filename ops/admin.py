@@ -2,6 +2,8 @@
 
 from django.contrib import admin
 
+from core.admin_ui import ORDER_TONES, PO_TONES, SHIPMENT_TONES, BadgeColumnsMixin
+
 from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, GoodsReceipt, GoodsReceiptLine, IgDeal,
                         IgDealStatus, InventoryMove, LedgerEvent, OnHand, OpsPeriod, Order, OrderLine, Product,
                         ProductComplianceChange, PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus,
@@ -9,7 +11,7 @@ from ops.models import (Channel, EtsyStatementPeriod, EtsyStatementRow, GoodsRec
                         SupplierInvoice, SupplierInvoiceLine, SupplierPayment)
 
 
-class ReadOnlyAdmin(admin.ModelAdmin):
+class ReadOnlyAdmin(BadgeColumnsMixin, admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
@@ -81,6 +83,7 @@ class ProductComplianceChangeAdmin(ReadOnlyAdmin):
 
 @admin.register(IgDeal)
 class IgDealAdmin(ReadOnlyAdmin):
+    status_tones = {}
     list_display = ("deal_id", "line_no", "customer_ref", "status", "enquiry_at",
                     "product", "consent_marketing", "dataset_kind")
     list_filter = ("status", ("enquiry_at", admin.DateFieldListFilter), "lost_reason",
@@ -90,6 +93,7 @@ class IgDealAdmin(ReadOnlyAdmin):
 
 @admin.register(IgDealStatus)
 class IgDealStatusAdmin(ReadOnlyAdmin):
+    status_tones = {}
     list_display = ("deal_id", "status", "effective_on", "source_filename", "dataset_kind")
     list_filter = ("status", "effective_on", "dataset_kind")
     search_fields = ("deal_id", "source_filename")
@@ -97,6 +101,7 @@ class IgDealStatusAdmin(ReadOnlyAdmin):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(ReadOnlyAdmin):
+    status_tones = PO_TONES
     list_display = ("po_number", "supplier", "status", "po_date", "target_delivery_date",
                     "currency", "incoterm", "quote_ref", "dataset_kind")
     list_filter = ("supplier", "status", "lines__product", "dataset_kind")
@@ -113,6 +118,7 @@ class PurchaseOrderLineAdmin(ReadOnlyAdmin):
 
 @admin.register(PurchaseOrderStatus)
 class PurchaseOrderStatusAdmin(ReadOnlyAdmin):
+    status_tones = PO_TONES
     list_display = ("po_number", "status", "effective_on", "source_filename", "dataset_kind")
     list_filter = ("status", "effective_on", "dataset_kind")
     search_fields = ("po_number", "source_filename")
@@ -165,6 +171,7 @@ class ChannelAdmin(ReadOnlyAdmin):
 
 @admin.register(Order)
 class OrderAdmin(ReadOnlyAdmin):
+    status_tones = ORDER_TONES
     list_display = ("channel_order_id", "channel", "order_date", "status", "currency", "dataset_kind")
     list_filter = ("dataset_kind", "status", "channel", "order_date")
     search_fields = ("channel_order_id", "channel__code")
@@ -179,6 +186,7 @@ class OrderLineAdmin(ReadOnlyAdmin):
 
 @admin.register(Shipment)
 class ShipmentAdmin(ReadOnlyAdmin):
+    status_tones = SHIPMENT_TONES
     list_display = ("order_id", "status", "ship_date", "dataset_kind")
     list_filter = ("dataset_kind", "status", "ship_date")
     search_fields = ("order__channel_order_id", "tracking_ref")

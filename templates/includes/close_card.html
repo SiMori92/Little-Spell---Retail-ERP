@@ -1,0 +1,28 @@
+<section class="surface-card close-card" aria-labelledby="close-heading">
+  <div class="section-heading compact"><div><p class="eyebrow">PERIOD CONTROL</p><h2 id="close-heading">Latest close attempt</h2></div>{% if latest_close %}{% if close_reopened %}{% include "includes/status_badge.html" with status="REOPENED" tone="warn" %}{% else %}{% include "includes/status_badge.html" with status=latest_close.status %}{% endif %}{% endif %}</div>
+  {% if latest_close %}
+  <div class="close-summary">
+    <div><p class="close-period">{{ latest_close.period }}</p><p class="close-meta">Run by {{ latest_close.runner }} · finished {{ latest_close.finished_at|date:"Y-m-d H:i" }} Taipei · {{ latest_close.elapsed_seconds|floatformat:"-2" }}s</p></div>
+    <p class="close-progress"><strong>{{ close_summary.passed }} of {{ close_summary.total }}</strong> gates passed</p>
+  </div>
+  {% if close_reopened %}
+  {% include "includes/notice.html" with tone="warning" title="Reopened after this close" body="This run closed the period, but the period has since been reopened through an audited reopen. Treat its figures as open until a new close passes." %}
+  {% elif close_summary.closed %}
+  {% include "includes/notice.html" with tone="success" title="Period closed" body="All five gates passed in order. The period is locked; reopening requires a named actor and reason." %}
+  {% elif close_summary.blocker %}
+  <div class="close-blocker" role="alert">
+    <p class="close-blocker-label">Period stays open — stopped at {{ close_summary.blocker.code }}</p>
+    <p class="close-blocker-reason">{{ close_summary.blocker.reason }}</p>
+    <p class="close-next"><strong>Next step:</strong> {{ close_summary.blocker.recovery }}</p>
+    {% if close_summary.blocker.command %}<p class="close-command"><span class="sr-only">Command: </span><code>uv run python manage.py {{ close_summary.blocker.command }}</code></p>{% endif %}
+    {% if close_summary.blocker.links %}<p class="close-links">Investigate: {% for link in close_summary.blocker.links %}<a href="{{ link.url }}">{{ link.label }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+  </div>
+  {% endif %}
+  <ol class="gate-list" aria-label="Close gates in run order">
+    {% for step in close_summary.steps %}<li class="gate-row gate-{{ step.status|lower }}"><span class="gate-code">{{ step.code }}</span><div class="gate-copy"><span class="gate-title">{{ step.title }}</span><span class="gate-reason">{{ step.reason }}</span></div>{% include "includes/status_badge.html" with status=step.status label=step.label %}</li>{% endfor %}
+  </ol>
+  {% if close_summary.blocker %}<p class="close-footnote">Gates after the first non-passing gate were not run in this attempt. NOT RUN is not a pass.</p>{% endif %}
+  {% else %}
+  {% include "includes/empty_state.html" with title="No close attempt recorded" body="The close checklist has not run on this dataset. Reports remain exploratory until the gates pass." %}
+  {% endif %}
+</section>

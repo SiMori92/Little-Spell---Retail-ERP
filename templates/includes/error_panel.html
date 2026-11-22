@@ -1,0 +1,7 @@
+<section class="surface-card error-panel" aria-labelledby="error-heading">
+  <p class="eyebrow">{{ error_eyebrow|default:"REQUEST NOT COMPLETED" }}</p>
+  <h1 id="error-heading">{{ error_title|default:"Something went wrong" }}</h1>
+  <p class="page-intro">{{ error_body|default:"The page could not be shown. Nothing was changed." }}</p>
+  {% if error_detail %}<p class="error-detail" role="alert">{{ error_detail }}</p>{% endif %}
+  <div class="error-actions">{% if retry_url %}<a class="button button-primary" href="{{ retry_url }}">{{ retry_label|default:"Try again" }} <span aria-hidden="true">→</span></a>{% endif %}<a class="button button-secondary" href="{% url 'home' %}">Back to overview</a></div>
+</section>

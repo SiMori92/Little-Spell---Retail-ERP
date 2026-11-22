@@ -29,7 +29,7 @@ them. The repository root is therefore `app/` and nothing above it is tracked.
 | `ops/` | Operational tables and manifest-driven Etsy, receipt and count intake. |
 | `acct/` | Journal, catalogue posting, reports and close gates. |
 | `ops_scripts/` | backup and restore-test shell scripts |
-| `docs/` | schema rulings, deploy guide and slice reports |
+| `docs/` | schema rulings, deploy guide, slice reports and UI handbook adoption (`UI_HANDBOOK_ADOPTION.md`) |
 
 `ops` and `acct` ARE the segregation of duties. Django prefixes tables with the app
 label, giving `ops_*` and `acct_*`, and grants are made by prefix. There are no

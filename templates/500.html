@@ -1,0 +1,6 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Server error · Little Spell Ledger</title><link rel="stylesheet" href="{% static 'css/app.css' %}"></head>
+<body><main id="main-content" class="page-content">
+{# Rendered without request context: no user, no dataset banner lookup, no database. #}
+<section class="surface-card error-panel" aria-labelledby="error-heading"><p class="eyebrow">500 · SERVER ERROR</p><h1 id="error-heading">The ledger could not finish this request</h1><p class="page-intro">Something failed on the server. Do not assume any figure, export or posting from this request completed — reload the page and check before repeating an action.</p><div class="error-actions"><a class="button button-primary" href="/">Back to overview <span aria-hidden="true">→</span></a></div></section>
+</main></body></html>

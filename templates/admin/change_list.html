@@ -1,0 +1,6 @@
+{% extends "admin/change_list.html" %}
+{% comment %}An empty list is a database count, not evidence that nothing happened.{% endcomment %}
+{% block result_list %}
+{% if cl.result_count == 0 %}<div class="ls-notice ls-notice-info" role="note"><strong>No {{ cl.opts.verbose_name_plural }} {% if cl.has_filters and cl.result_count != cl.full_result_count %}match these filters{% else %}recorded in this dataset{% endif %}</strong><p>This is a count of stored rows. It does not prove the business had none — check that the intake file for the period was imported.</p></div>{% endif %}
+{{ block.super }}
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title|default:"Something went wrong" }} · Little Spell Ledger{% endblock %}
+{% block section_label %}{{ error_section|default:"Error" }}{% endblock %}
+{% block content %}
+{% include "includes/error_panel.html" %}
+{% endblock %}

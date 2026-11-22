@@ -1,0 +1,5 @@
+{% extends "error.html" %}
+{% block title %}Request not understood · Little Spell Ledger{% endblock %}
+{% block content %}
+{% include "includes/error_panel.html" with error_eyebrow="400 · BAD REQUEST" error_title="The request could not be read" error_body="Check the address and try again. No data was changed." %}
+{% endblock %}

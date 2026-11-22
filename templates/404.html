@@ -1,0 +1,7 @@
+{% extends "error.html" %}
+{% block title %}Page not found · Little Spell Ledger{% endblock %}
+{% block section_label %}Not found{% endblock %}
+{% block content %}
+{% url 'report-index' as reports_url %}
+{% include "includes/error_panel.html" with error_eyebrow="404 · NOT FOUND" error_title="This page does not exist" error_body="The link may be out of date, or the report name is misspelled. No data was changed." retry_url=reports_url retry_label="Open the report library" %}
+{% endblock %}

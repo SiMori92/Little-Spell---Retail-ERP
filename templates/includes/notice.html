@@ -1,0 +1,2 @@
+{% comment %}Notice. tone: info (default) | success | warning | danger. Danger uses role=alert; others are notes.{% endcomment %}
+<div class="notice notice-{{ tone|default:'info' }}" role="{% if tone == 'danger' %}alert{% else %}note{% endif %}"><span class="notice-symbol" aria-hidden="true">{% if tone == 'danger' or tone == 'warning' %}!{% elif tone == 'success' %}✓{% else %}i{% endif %}</span><div><strong>{{ title }}</strong>{% if body %}<p>{{ body }}</p>{% endif %}</div></div>

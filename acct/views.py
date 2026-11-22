@@ -4,8 +4,9 @@ import csv
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 
 from acct.reporting import Figure, REPORT_BUILDERS, period_bounds
@@ -49,6 +50,16 @@ def _period(request):
     period = request.GET.get("period") or timezone.localtime(timezone.now(), ZoneInfo("Asia/Taipei")).strftime("%Y-%m")
     period_bounds(period)
     return period
+
+
+def _bad_period(request, exc):
+    """A malformed period is a 400 with the reason shown and a way back, never a blank page."""
+    return render(request, "error.html", {
+        "error_eyebrow": "400 · REPORT NOT RUN", "error_title": "This report could not run for that period",
+        "error_body": "Check the period: a month as YYYY-MM, or a date as YYYY-MM-DD for as-of reports. Nothing was calculated or exported.",
+        "error_detail": str(exc), "error_section": "Reports",
+        "retry_url": reverse("report-index"), "retry_label": "Choose another month",
+    }, status=400)
 
 
 def _csv_text(value):
@@ -100,7 +111,7 @@ def report_index(request):
     try:
         period = _period(request)
     except ValueError as exc:
-        return HttpResponseBadRequest(str(exc))
+        return _bad_period(request, exc)
     return render(request, "reports/index.html", {"period": period, "groups": REPORT_GROUPS})
 
 
@@ -118,7 +129,7 @@ def report_detail(request, slug):
             period = _period(request)
         report = builder(period)
     except ValueError as exc:
-        return HttpResponseBadRequest(str(exc))
+        return _bad_period(request, exc)
     if request.GET.get("format") == "csv":
         return export_csv(report)
     def display_table(columns, rows):
