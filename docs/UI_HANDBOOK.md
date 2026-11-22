@@ -240,14 +240,7 @@ The benchmark setup currently uses a substantial review dialog. A dedicated mult
 
 ### Collection and attribution
 
-The current collection consists of four public-domain works:
-
-| Artist              | Work                                         | Year |
-| ------------------- | -------------------------------------------- | ---- |
-| Claude Monet        | Water Lilies                                 | 1906 |
-| Claude Monet        | The Japanese Footbridge                      | 1899 |
-| Gustave Caillebotte | Paris Stre&#101;t; Rainy Day                      | 1877 |
-| Camille Pissarro    | The Boulevard Montmartre on a Winter Morning | 1897 |
+The collection is a URL catalogue of 131 public-domain Impressionist and Post-Impressionist works (`lib/artwork-catalog.json`, W-79), built from the Google Art Project scans on Wikimedia Commons by `scripts/build-art-catalog.mjs`. Only one image is stored locally, as the offline fallback.
 
 [public/art/README.md](public/art/README.md) records the image sources, rights, and Google Arts & Culture references. Images are local JPEGs with a maximum edge of 1200px. Google Arts & Culture is a discovery and reference destination, not a live image feed. A new work needs its own verified reuse rights; its appearance on Google does not establish permission to copy it.
 
@@ -260,7 +253,7 @@ The caption displays artist, title, and year and opens the matching Google Arts 
 1. The initial server and client render show a neutral art area, without a random server-selected painting.
 2. After mounting, a deferred effect selects the next work and preloads it with `Image`.
 3. After a successful load, the image and matching caption appear together.
-4. Each bag contains all four works once. The next bag cannot start with the last work of the previous bag.
+4. Each bag contains every catalogued work once. The next bag cannot start with the last work of the previous bag.
 5. The remaining bag and last selection persist under `benchmark-artwork-shuffle-v1` in `sessionStorage`.
 6. Mounting or a pathname change selects another work. A persisted `pageshow` event also selects another work after a back/forward cache return.
 7. Polling re-renders and query-string filter changes do not themselves trigger selection. There is no timed rotation.
@@ -412,8 +405,14 @@ Tailwind/global CSS, Radix dialogs, TanStack Table and Recharts stack.
 ### Deliberate adaptations and review follow-up
 
 Working headers omit artwork entirely; entering a form does not download a hidden
-painting or consume a shuffle entry. Landing pages retain the curated local artwork
-and attribution in `public/art/README.md`. Decorative accents never imply a result.
+painting or consume a shuffle entry. Landing pages rotate a URL catalogue of 111
+public-domain Google Art Project scans hosted on Wikimedia Commons
+(`src/lib/artwork-catalog.json`, built by `scripts/build-art-catalog.mjs`) plus one
+local offline fallback, Monet's _Water Lilies_ — 112 works per bag under
+`little-spell-artwork-shuffle-v2`. A failed remote load falls back to the local
+image; if that also fails, the header stays neutral and unattributed. Per-work
+sources, rights and Google Arts & Culture references are recorded in the catalogue
+and `public/art/README.md`. Decorative accents never imply a result.
 Essential supporting text and financial previews use at least 12px text.
 
 **Finance wording review remains outstanding:** review the plain-English G-1…G-5
@@ -439,9 +438,11 @@ has no modifications to domain logic, API handlers, storage code, `Dockerfile`,
 `railway.json` or CI configuration. Merging deploys the new interface against the
 existing mounted store; UI acceptance does not establish financial release readiness.
 
-Final local verification: typecheck, lint, 132 unit/API/store tests, production
-build, isolated production smoke, 38 Chromium end-to-end tests, and tracked/staged
-repository guards passed. Lint retains three existing warnings; the build retains
-four existing filesystem-tracing warnings. Desktop/mobile screenshot review of
-Close, Money, Reports, Sell and Stock produced no browser console errors. These
-checks do not constitute a full accessibility audit or financial-parity sign-off.
+Final local verification: typecheck, lint, 134 unit/API/store tests, production
+build, isolated production smoke, 39 Chromium end-to-end tests, and tracked/staged
+repository guards passed. The artwork tests cover the 112-work bag, the local
+offline fallback, remote-failure fallback, blocked storage and bag advancement.
+Lint retains three existing warnings; the build retains four existing
+filesystem-tracing warnings. Desktop/mobile screenshot review of Close, Money,
+Reports, Sell and Stock produced no browser console errors. These checks do not
+constitute a full accessibility audit or financial-parity sign-off.

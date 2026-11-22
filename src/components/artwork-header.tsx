@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { createArtworkShuffler, type Artwork } from '@/lib/artwork';
+import { artworkFallback, createArtworkShuffler, type Artwork } from '@/lib/artwork';
 
 const nextArtwork = createArtworkShuffler();
 
@@ -21,9 +21,19 @@ export function ArtworkHeader() {
       const image = new Image();
       pending = image;
       image.onload = () => { if (!disposed) setArtwork(selected); };
-      // Never attribute a painting that failed to load. The neutral panel has
-      // the same dimensions, keeping the working area stable on failure.
-      image.onerror = () => { if (!disposed) setArtwork(null); };
+      // A failed remote load falls back to the first catalogued work, the one
+      // local image, so the header still shows a painting offline. The caption
+      // always matches the displayed image; if even the fallback fails, the
+      // neutral panel keeps the working area stable and unattributed.
+      image.onerror = () => {
+        if (disposed) return;
+        if (selected.id === artworkFallback.id) { setArtwork(null); return; }
+        const retry = new Image();
+        pending = retry;
+        retry.onload = () => { if (!disposed) setArtwork(artworkFallback); };
+        retry.onerror = () => { if (!disposed) setArtwork(null); };
+        retry.src = artworkFallback.image;
+      };
       image.src = selected.image;
     }
     queueMicrotask(() => { if (!disposed) selectArtwork(); });

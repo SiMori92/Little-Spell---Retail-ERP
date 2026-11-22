@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const artKey = 'little-spell-artwork-shuffle-v1';
+const artKey = 'little-spell-artwork-shuffle-v2';
 
 test('workspace artwork stays stable across filters and flow steps; reload advances the bag', async ({ page }) => {
   await page.goto('/buy');
@@ -26,10 +26,20 @@ test('artwork failure and blocked storage preserve a usable workspace', async ({
     Object.defineProperty(window, 'sessionStorage', { get() { throw new Error('Storage blocked'); } });
   });
   await page.route('**/art/*.jpg', route => route.abort());
+  await page.route('**/thumb.wikimedia.org/**', route => route.abort());
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Your day, at a glance' })).toBeVisible();
   await expect(page.locator('.page-heading-art a')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Open setup', exact: true })).toBeVisible();
+});
+
+test('a failed remote painting falls back to the local offline work', async ({ page }) => {
+  await page.route('**/thumb.wikimedia.org/**', route => route.abort());
+  await page.goto('/buy');
+  const art = page.locator('.page-heading-art');
+  await expect(art.locator('a')).toBeVisible();
+  await expect(art).toHaveAttribute('style', /\/art\/monet-water-lilies\.jpg/);
+  await expect(art.locator('a')).toContainText('Water Lilies');
 });
 
 test('pilot layouts keep page overflow contained at handbook breakpoints', async ({ page }) => {

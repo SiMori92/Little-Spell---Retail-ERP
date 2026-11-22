@@ -44,10 +44,10 @@ it("preserves the unfinished bag across refreshes and avoids a boundary repeat",
   );
   storage.setItem(
     artworkStorageKey,
-    JSON.stringify({ remaining: [], last: artworks[0].id }),
+    JSON.stringify({ remaining: [], last: artworks[0]!.id }),
   );
   expect(createArtworkShuffler(() => 0.999)(storage).id).not.toBe(
-    artworks[0].id,
+    artworks[0]!.id,
   );
 });
 
@@ -55,8 +55,8 @@ it.each([
   "{broken JSON",
   "null",
   JSON.stringify({ remaining: ["removed-artwork"], last: null }),
-  JSON.stringify({ remaining: [artworks[0].id, artworks[0].id], last: null }),
-  JSON.stringify({ remaining: [artworks[0].id], last: artworks[0].id }),
+  JSON.stringify({ remaining: [artworks[0]!.id, artworks[0]!.id], last: null }),
+  JSON.stringify({ remaining: [artworks[0]!.id], last: artworks[0]!.id }),
 ])("recovers from invalid or outdated stored state: %s", (stored) => {
   const storage = session();
   storage.setItem(artworkStorageKey, stored);
@@ -80,14 +80,33 @@ it("keeps shuffling when reading or writing session storage is blocked", () => {
   expect(new Set(visits).size).toBe(artworks.length);
 });
 
-it("ships a real local JPEG and Google Arts & Culture reference for every entry", () => {
+it("rotates at least 100 unique works with Google Arts & Culture references", () => {
+  expect(artworks.length).toBeGreaterThanOrEqual(100);
+  expect(new Set(artworks.map((artwork) => artwork.id)).size).toBe(
+    artworks.length,
+  );
   for (const artwork of artworks) {
-    const bytes = readFileSync(
-      new URL(`../public${artwork.image}`, import.meta.url),
-    );
-    expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
     expect(new URL(artwork.source).hostname).toBe("artsandculture.google.com");
     expect(artwork.title).toBeTruthy();
     expect(artwork.artist).toBeTruthy();
+    expect(artwork.year).toBeTruthy();
+  }
+});
+
+it("leads with a real local JPEG offline fallback", () => {
+  const fallback = artworks[0]!;
+  expect(fallback.image.startsWith("/art/")).toBe(true);
+  const bytes = readFileSync(
+    new URL(`../public${fallback.image}`, import.meta.url),
+  );
+  expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+});
+
+it("points every remote work at a reachable Wikimedia Commons thumbnail", () => {
+  for (const artwork of artworks.slice(1)) {
+    const image = new URL(artwork.image);
+    expect(image.protocol).toBe("https:");
+    expect(image.hostname).toBe("thumb.wikimedia.org");
+    expect(image.pathname).toMatch(/\.jpe?g$/i);
   }
 });

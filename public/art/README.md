@@ -1,16 +1,27 @@
 # Header artwork
 
-The shared header selects a painting on each route visit, refresh, or return via the browser's back/forward cache. A shuffled bag in sessionStorage shows all four works before starting another cycle and avoids an immediate repeat between cycles. Normal polling and filter changes do not reshuffle. When browser storage is blocked, an in-memory bag supports navigation; reload history cannot be retained in that case.
+The shared header selects a painting on each route visit, refresh, or return via the browser's back/forward cache. A shuffled bag in sessionStorage (`little-spell-artwork-shuffle-v2`) shows every catalogued work once before starting another cycle and avoids an immediate repeat between cycles. Normal polling and filter changes do not reshuffle. When browser storage is blocked, an in-memory bag supports navigation; reload history cannot be retained in that case.
 
-Google Arts & Culture is the discovery/reference source. Captions link to the matching artwork there. Public-domain image copies are stored locally, so rendering does not call Google, Wikimedia, or museum APIs. The selection is curated, not a live feed of the entire Google Arts & Culture collection.
+## Collection
 
-| Local file                          | Work                                                                   | Google Arts & Culture                                  | Image source / rights                                                                                                                                                  |
-| ----------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `monet-water-lilies.jpg`            | Claude Monet, _Water Lilies_, 1906                                     | https://artsandculture.google.com/asset/XwEbNDsEYukiWQ | https://commons.wikimedia.org/wiki/File:Claude_Monet_-_Water_Lilies_-_1906,_Ryerson.jpg · Public domain; Art Institute of Chicago artwork 16568                        |
-| `monet-japanese-footbridge.jpg`     | Claude Monet, _The Japanese Footbridge_, 1899                          | https://artsandculture.google.com/asset/RgG90GYz4QkZ4A | https://commons.wikimedia.org/wiki/File:Claude_Monet,_The_Japanese_Footbridge,_1899,_NGA_74796.jpg · CC0; National Gallery of Art                                      |
-| `caillebotte-paris-rainy-day.jpg`   | Gustave Caillebotte, _Paris Stre&#101;t; Rainy Day_, 1877                   | https://artsandculture.google.com/asset/5wEUCOlEf-EaVQ | https://commons.wikimedia.org/wiki/File:Gustave_Caillebotte_-_Paris_Street;_Rainy_Day_-_Google_Art_Project.jpg · Public domain; Art Institute of Chicago artwork 20684 |
-| `pissarro-boulevard-montmartre.jpg` | Camille Pissarro, _The Boulevard Montmartre on a Winter Morning_, 1897 | https://artsandculture.google.com/asset/4wGJB3rAyAmk2w | https://commons.wikimedia.org/wiki/File:The_Boulevard_Montmartre_on_a_Winter_Morning_MET_DT1906.jpg · CC0; Metropolitan Museum of Art                                  |
+The rotation is a URL catalogue of **111 public-domain Impressionist and Post-Impressionist works** in [`src/lib/artwork-catalog.json`](../../src/lib/artwork-catalog.json), plus the one local fallback below (112 works per bag). Every entry was scanned by the **Google Art Project** and is hosted on Wikimedia Commons; the catalogue is built at development time by [`scripts/build-art-catalog.mjs`](../../scripts/build-art-catalog.mjs), never fetched live at runtime.
 
-Museum public-domain status for the Chicago works was verified through `https://api.artic.edu/api/v1/artworks/{id}?fields=id,title,is_public_domain`. Footbridge and Montmartre image licenses were verified using Wikimedia Commons image metadata (`LicenseShortName: CC0`). Images are resized to a maximum edge of 1200 pixels and cropped by CSS for the decorative header.
+The builder walks the Wikimedia Commons categories `Google Art Project works by <artist>` for 20 artists who died before 1930 (public domain worldwide), keeps only landscape paintings with a verified public-domain licence, a Google Arts & Culture asset link, and a reachable 1280px-wide JPEG thumbnail, and caps any one artist at 18 works so the rotation stays varied. It refuses to write fewer than 100 works.
 
-To expand the collection, add a local image with verified reuse rights and an entry in `lib/artwork.ts`. Bump `artworkStorageKey` when changing the catalog so an existing session starts with a fresh bag.
+Per-work attribution lives in the catalogue itself: each entry carries `artist`, `title`, `year`, `image` (Wikimedia thumbnail URL), `source` (Google Arts & Culture asset page), `commons` (Wikimedia file page), `license` (`Public domain (PD-Art)`), and `collection` (holding museum). Captions display artist, title, and year and open the matching Google Arts & Culture reference in a new tab (`noopener noreferrer`). Google Arts & Culture is the discovery/reference destination, not a live image feed; the images render from Wikimedia Commons thumbnails.
+
+Current mix: Monet 18, Cézanne 18, van Gogh 15, Renoir 10, Gauguin 9, Manet 8, Signac 6, Degas 5, Pissarro 5, Caillebotte 3, Seurat 3, Sisley 3, Toulouse-Lautrec 3, and one each from Cassatt, Bazille, Boudin, Cross, and Jongkind.
+
+## Offline fallback
+
+Only one image is stored locally. It is the first catalogue entry, so a failed remote load falls back to a painting that renders without network access; if even it fails, the header shows a neutral panel with no caption.
+
+| Local file               | Work                               | Google Arts & Culture                                  | Image source / rights                                                                                                                           |
+| ------------------------ | ---------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `monet-water-lilies.jpg` | Claude Monet, _Water Lilies_, 1906 | https://artsandculture.google.com/asset/XwEbNDsEYukiWQ | https://commons.wikimedia.org/wiki/File:Claude_Monet_-_Water_Lilies_-_1906,_Ryerson.jpg · Public domain; Art Institute of Chicago artwork 16568 |
+
+Museum public-domain status for the Chicago work was verified through `https://api.artic.edu/api/v1/artworks/16568?fields=id,title,is_public_domain`. The local JPEG is resized to a maximum edge of 1200 pixels; remote thumbnails are 1280px wide. All images are cropped by CSS for the decorative header.
+
+## Maintaining the catalogue
+
+Regenerate with `node scripts/build-art-catalog.mjs` (build-time only; it pauses between requests and honours Wikimedia's `Retry-After`). Review the desktop and shallow mobile crops of new entries, then bump `artworkStorageKey` in `src/lib/artwork.ts` so existing sessions start a fresh bag, and run the artwork tests. A new work needs its own verified reuse rights; its appearance on Google does not establish permission to copy it.

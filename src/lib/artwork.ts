@@ -1,42 +1,34 @@
-export const artworks = [
-  {
-    id: "monet-water-lilies",
-    artist: "Claude Monet",
-    title: "Water Lilies",
-    year: "1906",
-    image: "/art/monet-water-lilies.jpg",
-    source: "https://artsandculture.google.com/asset/XwEbNDsEYukiWQ",
-  },
-  {
-    id: "monet-japanese-footbridge",
-    artist: "Claude Monet",
-    title: "The Japanese Footbridge",
-    year: "1899",
-    image: "/art/monet-japanese-footbridge.jpg",
-    source: "https://artsandculture.google.com/asset/RgG90GYz4QkZ4A",
-  },
-  {
-    id: "caillebotte-paris-rainy-day",
-    artist: "Gustave Caillebotte",
-    title: "Paris Street; Rainy Day",
-    year: "1877",
-    image: "/art/caillebotte-paris-rainy-day.jpg",
-    source: "https://artsandculture.google.com/asset/5wEUCOlEf-EaVQ",
-  },
-  {
-    id: "pissarro-boulevard-montmartre",
-    artist: "Camille Pissarro",
-    title: "The Boulevard Montmartre on a Winter Morning",
-    year: "1897",
-    image: "/art/pissarro-boulevard-montmartre.jpg",
-    source: "https://artsandculture.google.com/asset/4wGJB3rAyAmk2w",
-  },
-] as const;
+import catalog from "./artwork-catalog.json";
 
-export type Artwork = (typeof artworks)[number];
+export type Artwork = {
+  id: string;
+  artist: string;
+  title: string;
+  year: string;
+  image: string;
+  source: string;
+};
+
+// The only locally stored image. It leads the catalogue so a failed remote
+// load can fall back to a painting that renders without network access.
+const offlineFallback: Artwork = {
+  id: "monet-water-lilies",
+  artist: "Claude Monet",
+  title: "Water Lilies",
+  year: "1906",
+  image: "/art/monet-water-lilies.jpg",
+  source: "https://artsandculture.google.com/asset/XwEbNDsEYukiWQ",
+};
+
+// URL catalogue of Google Art Project scans hosted on Wikimedia Commons,
+// built by scripts/build-art-catalog.mjs. Every entry is public domain and
+// links to its Google Arts & Culture reference for attribution.
+export const artworks: Artwork[] = [offlineFallback, ...catalog];
+export const artworkFallback = artworks[0]!;
+
 type ShuffleState = { remaining: string[]; last: string | null };
 type ArtStorage = Pick<Storage, "getItem" | "setItem">;
-export const artworkStorageKey = "little-spell-artwork-shuffle-v1";
+export const artworkStorageKey = "little-spell-artwork-shuffle-v2";
 const ids: string[] = artworks.map((artwork) => artwork.id);
 
 function readState(value: string | null): ShuffleState | null {
